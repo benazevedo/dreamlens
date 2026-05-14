@@ -17,8 +17,10 @@ import {
   runBulkAiScreen,
   runDeepAiScreen,
   clusterProblemOpportunities,
+  createValidationPlan,
   type AnalyzedIdea,
   type ProblemCluster,
+  type ValidationPlan,
 } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
 
@@ -36,7 +38,9 @@ function App() {
   const [selectedIdea, setSelectedIdea] = useState<IdeaRow | null>(null)
   const [analyzedIdeas, setAnalyzedIdeas] = useState<Record<string, AnalyzedIdea>>({})
   const [problemClusters, setProblemClusters] = useState<ProblemCluster[]>([])
+  const [validationPlans, setValidationPlans] = useState<Record<string, ValidationPlan>>({})
   const [isProblemClustering, setIsProblemClustering] = useState(false)
+  const [isValidationPlanning, setIsValidationPlanning] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
@@ -56,6 +60,7 @@ function App() {
         ideas?: IdeaRow[]
         analyzedIdeas?: Record<string, AnalyzedIdea>
         problemClusters?: ProblemCluster[]
+        validationPlans?: Record<string, ValidationPlan>
         selectedIdeaKey?: string | null
         page?: Page
       }
@@ -63,10 +68,12 @@ function App() {
       const restoredIdeas = parsed.ideas ?? []
       const restoredAnalyzedIdeas = parsed.analyzedIdeas ?? {}
       const restoredProblemClusters = parsed.problemClusters ?? []
+      const restoredValidationPlans = parsed.validationPlans ?? {}
 
       setIdeas(restoredIdeas)
       setAnalyzedIdeas(restoredAnalyzedIdeas)
       setProblemClusters(restoredProblemClusters)
+      setValidationPlans(restoredValidationPlans)
       setPage(parsed.page ?? 'dashboard')
 
       if (parsed.selectedIdeaKey) {
@@ -97,11 +104,20 @@ function App() {
         ideas,
         analyzedIdeas,
         problemClusters,
+        validationPlans,
         selectedIdeaKey,
         page,
       }),
     )
-  }, [hasHydrated, ideas, analyzedIdeas, problemClusters, selectedIdea, page])
+  }, [
+    hasHydrated,
+    ideas,
+    analyzedIdeas,
+    problemClusters,
+    validationPlans,
+    selectedIdea,
+    page,
+  ])
 
   const selectedAnalysis = selectedIdea
     ? analyzedIdeas[getIdeaKey(selectedIdea)]
@@ -141,6 +157,7 @@ function App() {
     setSelectedIdea(null)
     setAnalyzedIdeas({})
     setProblemClusters([])
+    setValidationPlans({})
     setError(null)
     setPage('dashboard')
   }
@@ -337,6 +354,57 @@ function App() {
     }
   }
 
+  async function handleCreateValidationPlan() {
+    if (!selectedIdea) {
+      setError('Select an idea before creating a validation plan.')
+      return
+    }
+
+    const key = getIdeaKey(selectedIdea)
+    const analysis = analyzedIdeas[key]
+
+    const problemBeingSolved =
+      selectedIdea.problem ||
+      analysis?.problemBeingSolved ||
+      selectedIdea.description ||
+      selectedIdea.idea
+
+    setIsValidationPlanning(true)
+    setError(null)
+
+    try {
+      const plan = await createValidationPlan({
+        key,
+        id: selectedIdea.id,
+        rowNumber: selectedIdea.rowNumber,
+        idea: selectedIdea.idea,
+        description: selectedIdea.description,
+        problemBeingSolved,
+        targetCustomers: selectedIdea.targetAudience
+          ? [selectedIdea.targetAudience]
+          : analysis?.targetCustomers ?? [],
+        industries:
+          selectedIdea.industries.length > 0
+            ? selectedIdea.industries
+            : analysis?.industries ?? [],
+        overallScore: analysis?.overallScore,
+        recommendation: analysis?.recommendation,
+      })
+
+      setValidationPlans((current) => ({
+        ...current,
+        [key]: plan,
+      }))
+
+      setPage('dashboard')
+    } catch (err) {
+      console.error(err)
+      setError('Validation plan failed. Check the backend terminal for details.')
+    } finally {
+      setIsValidationPlanning(false)
+    }
+  }
+
   function handleExportCsv() {
     if (ideas.length === 0) return
     exportIdeasCsv(ideas, analyzedIdeas)
@@ -415,6 +483,11 @@ function App() {
             onSelectIdea={setSelectedIdea}
             onRunDeepAnalysis={handleRunDeepAnalysis}
             isDeepAnalyzing={isDeepAnalyzing}
+            selectedValidationPlan={
+              selectedIdea ? validationPlans[getIdeaKey(selectedIdea)] : undefined
+            }
+            onCreateValidationPlan={handleCreateValidationPlan}
+            isValidationPlanning={isValidationPlanning}
           />
         )}
 
@@ -453,6 +526,8 @@ function App() {
             isDeepAnalyzing={isDeepAnalyzing}
             onRunProblemClustering={handleRunProblemClustering}
             isProblemClustering={isProblemClustering}
+            onCreateValidationPlan={handleCreateValidationPlan}
+            isValidationPlanning={isValidationPlanning}
           />
         )}
       </section>
@@ -541,8 +616,9 @@ function DashboardPage({
   onSelectIdea,
   onRunDeepAnalysis,
   isDeepAnalyzing,
-  onRunProblemClustering,
-  isProblemClustering,
+  selectedValidationPlan,
+  onCreateValidationPlan,
+  isValidationPlanning,
 }: {
   stats: {
     total: number
@@ -557,8 +633,9 @@ function DashboardPage({
   onSelectIdea: (idea: IdeaRow) => void
   onRunDeepAnalysis: () => void
   isDeepAnalyzing: boolean
-  onRunProblemClustering: () => void
-  isProblemClustering: boolean
+  selectedValidationPlan?: ValidationPlan
+  onCreateValidationPlan: () => void
+  isValidationPlanning: boolean
 }) {
   const topIdeas = rankedIdeas
     .filter((idea) => analyzedIdeas[getIdeaKey(idea)])
@@ -624,6 +701,9 @@ function DashboardPage({
           analysis={selectedAnalysis}
           onRunDeepAnalysis={onRunDeepAnalysis}
           isDeepAnalyzing={isDeepAnalyzing}
+          validationPlan={selectedValidationPlan}
+          onCreateValidationPlan={onCreateValidationPlan}
+          isValidationPlanning={isValidationPlanning}
         />
       </div>
     </>
@@ -1003,6 +1083,8 @@ function AgentsPage({
   isDeepAnalyzing,
   onRunProblemClustering,
   isProblemClustering,
+  onCreateValidationPlan,
+  isValidationPlanning,
 }: {
   ideas: IdeaRow[]
   analyzedCount: number
@@ -1015,6 +1097,8 @@ function AgentsPage({
   isDeepAnalyzing: boolean
   onRunProblemClustering: () => void
   isProblemClustering: boolean
+  onCreateValidationPlan: () => void
+  isValidationPlanning: boolean
 }) {
   return (
     <div className="grid grid-cols-[1fr_420px] gap-6">
@@ -1067,6 +1151,28 @@ function AgentsPage({
               className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isDeepAnalyzing ? 'Running Deep Analysis...' : 'Run on Selected Idea'}
+            </button>
+          }
+        />
+
+        <AgentCard
+          icon={<Sparkles size={20} />}
+          title="Validation Agents"
+          status="Active"
+          description="Turns a selected idea into a concrete validation plan with customer discovery, MVP, and GTM experiments."
+          steps={[
+            'Customer Discovery Agent',
+            'MVP Planning Agent',
+            'GTM / Experiment Agent',
+            '7-day and 30-day validation roadmap',
+          ]}
+          actions={
+            <button
+              disabled={!selectedIdea || isValidationPlanning}
+              onClick={onCreateValidationPlan}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isValidationPlanning ? 'Creating Plan...' : 'Run on Selected Idea'}
             </button>
           }
         />
@@ -1138,6 +1244,8 @@ function IdeaDetail({
   isDeepAnalyzing,
   onRunProblemClustering,
   isProblemClustering,
+  onCreateValidationPlan,
+  isValidationPlanning,
 }: {
   idea: IdeaRow | null
   analysis?: AnalyzedIdea
@@ -1145,6 +1253,8 @@ function IdeaDetail({
   isDeepAnalyzing: boolean
   onRunProblemClustering: () => void
   isProblemClustering: boolean
+  onCreateValidationPlan: () => void
+  isValidationPlanning: boolean
 }) {
   if (!idea) {
     return (
@@ -1166,13 +1276,23 @@ function IdeaDetail({
         <h3 className="mt-1 text-xl font-bold">{idea.idea || 'Untitled idea'}</h3>
       </div>
 
-      <button
-        disabled={isDeepAnalyzing}
-        onClick={onRunDeepAnalysis}
-        className="mb-5 w-full rounded-xl bg-gray-950 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {isDeepAnalyzing ? 'Running Deep Analysis...' : 'Run Deep Analysis on This Idea'}
-      </button>
+      <div className="mb-5 grid grid-cols-2 gap-3">
+        <button
+          disabled={isDeepAnalyzing}
+          onClick={onRunDeepAnalysis}
+          className="rounded-xl bg-gray-950 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isDeepAnalyzing ? 'Running Deep Analysis...' : 'Run Deep Analysis'}
+        </button>
+
+        <button
+          disabled={isValidationPlanning}
+          onClick={onCreateValidationPlan}
+          className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isValidationPlanning ? 'Creating Plan...' : 'Run Validation Plan'}
+        </button>
+      </div>
 
       {analysis && (
         <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
@@ -1258,6 +1378,8 @@ function IdeaDetail({
         </>
       )}
 
+      {validationPlan && <ValidationPlanPanel plan={validationPlan} />}
+
       {!analysis && (
         <div className="mt-5 rounded-xl bg-gray-50 p-4 text-sm text-gray-500">
           Run analysis to generate scores, competitor notes, ethics notes, and names.
@@ -1266,6 +1388,101 @@ function IdeaDetail({
     </div>
   )
 }
+
+function ValidationPlanPanel({ plan }: { plan: ValidationPlan }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-semibold">Validation Plan</h4>
+          <p className="mt-1 text-sm leading-6 text-gray-600">
+            {plan.problem_being_solved}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 p-3 text-center">
+          <p className="text-2xl font-bold">{plan.validation_score}</p>
+          <p className="text-xs text-gray-500">validation</p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-5">
+        <ValidationSection
+          title="Primary Customer"
+          items={[
+            plan.customer_discovery.primary_customer,
+            `Buying trigger: ${plan.customer_discovery.strongest_buying_trigger}`,
+          ]}
+        />
+
+        <ValidationSection
+          title="Where to Find Customers"
+          items={plan.customer_discovery.where_to_find_customers}
+        />
+
+        <ValidationSection
+          title="Interview Questions"
+          items={plan.customer_discovery.interview_questions}
+        />
+
+        <ValidationSection
+          title="MVP Plan"
+          items={[
+            plan.mvp_plan.mvp_summary,
+            `Fastest build path: ${plan.mvp_plan.fastest_build_path}`,
+            `Estimated build time: ${plan.mvp_plan.estimated_build_time}`,
+            `Riskiest assumption: ${plan.mvp_plan.riskiest_assumption}`,
+          ]}
+        />
+
+        <ValidationSection
+          title="Must-Have MVP Features"
+          items={plan.mvp_plan.must_have_features}
+        />
+
+        <ValidationSection
+          title="GTM Experiments"
+          items={plan.gtm_experiment_plan.validation_experiments}
+        />
+
+        <ValidationSection
+          title="Pricing Tests"
+          items={plan.gtm_experiment_plan.pricing_tests}
+        />
+
+        <ValidationSection title="First 7 Days" items={plan.first_7_days} />
+        <ValidationSection title="First 30 Days" items={plan.first_30_days} />
+
+        <div className="rounded-xl bg-gray-50 p-4">
+          <h5 className="text-sm font-semibold">Founder Warning</h5>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            {plan.founder_warning}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ValidationSection({
+  title,
+  items,
+}: {
+  title: string
+  items: string[]
+}) {
+  return (
+    <div>
+      <h5 className="text-sm font-semibold">{title}</h5>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 
 function SidebarButton({
   active,

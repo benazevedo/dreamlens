@@ -29,7 +29,11 @@ class AtomicIdea(BaseModel):
     target_customer: str
     product_type: str
     why_this_should_be_separate: str
-    initial_score_hint: int = Field(ge=0, le=100)
+    initial_score_hint: int = Field(
+        ge=0,
+        le=100,
+        description="A rough 0-100 opportunity score hint for this atomic idea."
+    )
 
 
 class IdeaDecomposition(BaseModel):
@@ -68,6 +72,7 @@ Do not force everything into one idea if the input contains multiple product con
 
 Also identify:
 - shared problem themes
+- initial_score_hint for each atomic idea using a 0-100 scale, not a 1-10 scale
 - whether these could become one company/product suite
 - the best first wedge
 - ethics/legal flags

@@ -20,11 +20,13 @@ import {
   createValidationPlan,
   createResearchBrief,
   createDecisionMemo,
+  decomposeIdea,
   type AnalyzedIdea,
   type ProblemCluster,
   type ValidationPlan,
   type ResearchBrief,
   type DecisionMemo,
+  type IdeaDecomposition,
 } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
 
@@ -45,10 +47,12 @@ function App() {
   const [validationPlans, setValidationPlans] = useState<Record<string, ValidationPlan>>({})
   const [researchBriefs, setResearchBriefs] = useState<Record<string, ResearchBrief>>({})
   const [decisionMemos, setDecisionMemos] = useState<Record<string, DecisionMemo>>({})
+  const [ideaDecompositions, setIdeaDecompositions] = useState<Record<string, IdeaDecomposition>>({})
   const [isProblemClustering, setIsProblemClustering] = useState(false)
   const [isValidationPlanning, setIsValidationPlanning] = useState(false)
   const [isResearching, setIsResearching] = useState(false)
   const [isDecisionMemoing, setIsDecisionMemoing] = useState(false)
+  const [isDecomposing, setIsDecomposing] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
@@ -71,6 +75,7 @@ function App() {
         validationPlans?: Record<string, ValidationPlan>
         researchBriefs?: Record<string, ResearchBrief>
         decisionMemos?: Record<string, DecisionMemo>
+        ideaDecompositions?: Record<string, IdeaDecomposition>
         selectedIdeaKey?: string | null
         page?: Page
       }
@@ -81,6 +86,7 @@ function App() {
       const restoredValidationPlans = parsed.validationPlans ?? {}
       const restoredResearchBriefs = parsed.researchBriefs ?? {}
       const restoredDecisionMemos = parsed.decisionMemos ?? {}
+      const restoredIdeaDecompositions = parsed.ideaDecompositions ?? {}
 
       setIdeas(restoredIdeas)
       setAnalyzedIdeas(restoredAnalyzedIdeas)
@@ -88,6 +94,7 @@ function App() {
       setValidationPlans(restoredValidationPlans)
       setResearchBriefs(restoredResearchBriefs)
       setDecisionMemos(restoredDecisionMemos)
+      setIdeaDecompositions(restoredIdeaDecompositions)
       setPage(parsed.page ?? 'dashboard')
 
       if (parsed.selectedIdeaKey) {
@@ -121,6 +128,7 @@ function App() {
         validationPlans,
         researchBriefs,
         decisionMemos,
+        ideaDecompositions,
         selectedIdeaKey,
         page,
       }),
@@ -133,6 +141,7 @@ function App() {
     validationPlans,
     researchBriefs,
     decisionMemos,
+    ideaDecompositions,
     selectedIdea,
     page,
   ])
@@ -178,6 +187,7 @@ function App() {
     setValidationPlans({})
     setResearchBriefs({})
     setDecisionMemos({})
+    setIdeaDecompositions({})
     setError(null)
     setPage('dashboard')
   }
@@ -513,6 +523,40 @@ function App() {
     }
   }
 
+  async function handleDecomposeSelectedIdea() {
+    if (!selectedIdea) {
+      setError('Select an idea before decomposing it.')
+      return
+    }
+
+    const key = getIdeaKey(selectedIdea)
+
+    setIsDecomposing(true)
+    setError(null)
+
+    try {
+      const result = await decomposeIdea({
+        id: selectedIdea.id,
+        rowNumber: selectedIdea.rowNumber,
+        idea: selectedIdea.idea,
+        description: selectedIdea.description,
+        problem: selectedIdea.problem,
+      })
+
+      setIdeaDecompositions((current) => ({
+        ...current,
+        [key]: result,
+      }))
+
+      setPage('dashboard')
+    } catch (err) {
+      console.error(err)
+      setError('Idea decomposition failed. Check the backend terminal for details.')
+    } finally {
+      setIsDecomposing(false)
+    }
+  }
+
   function handleExportCsv() {
     if (ideas.length === 0) return
     exportIdeasCsv(ideas, analyzedIdeas)
@@ -606,6 +650,11 @@ function App() {
             }
             onCreateDecisionMemo={handleCreateDecisionMemo}
             isDecisionMemoing={isDecisionMemoing}
+            selectedIdeaDecomposition={
+              selectedIdea ? ideaDecompositions[getIdeaKey(selectedIdea)] : undefined
+            }
+            onDecomposeIdea={handleDecomposeSelectedIdea}
+            isDecomposing={isDecomposing}
           />
         )}
 
@@ -650,6 +699,8 @@ function App() {
             isResearching={isResearching}
             onCreateDecisionMemo={handleCreateDecisionMemo}
             isDecisionMemoing={isDecisionMemoing}
+            onDecomposeIdea={handleDecomposeSelectedIdea}
+            isDecomposing={isDecomposing}
           />
         )}
       </section>
@@ -747,6 +798,9 @@ function DashboardPage({
   selectedDecisionMemo,
   onCreateDecisionMemo,
   isDecisionMemoing,
+  selectedIdeaDecomposition,
+  onDecomposeIdea,
+  isDecomposing,
 }: {
   stats: {
     total: number
@@ -770,6 +824,9 @@ function DashboardPage({
   selectedDecisionMemo?: DecisionMemo
   onCreateDecisionMemo: () => void
   isDecisionMemoing: boolean
+  selectedIdeaDecomposition?: IdeaDecomposition
+  onDecomposeIdea: () => void
+  isDecomposing: boolean
 }) {
   const topIdeas = rankedIdeas
     .filter((idea) => analyzedIdeas[getIdeaKey(idea)])
@@ -844,6 +901,9 @@ function DashboardPage({
           decisionMemo={selectedDecisionMemo}
           onCreateDecisionMemo={onCreateDecisionMemo}
           isDecisionMemoing={isDecisionMemoing}
+          ideaDecomposition={selectedIdeaDecomposition}
+          onDecomposeIdea={onDecomposeIdea}
+          isDecomposing={isDecomposing}
         />
       </div>
     </>
@@ -1229,6 +1289,8 @@ function AgentsPage({
   isResearching,
   onCreateDecisionMemo,
   isDecisionMemoing,
+  onDecomposeIdea,
+  isDecomposing,
 }: {
   ideas: IdeaRow[]
   analyzedCount: number
@@ -1247,10 +1309,34 @@ function AgentsPage({
   isResearching: boolean
   onCreateDecisionMemo: () => void
   isDecisionMemoing: boolean
+  onDecomposeIdea: () => void
+  isDecomposing: boolean
 }) {
   return (
     <div className="grid grid-cols-[1fr_420px] gap-6">
       <div className="space-y-5">
+        <AgentCard
+          icon={<Sparkles size={20} />}
+          title="Idea Decomposer Agent"
+          status="Active"
+          description="Splits long or compound ideas into atomic startup ideas that can be scored, researched, and validated separately."
+          steps={[
+            'Detects compound ideas',
+            'Extracts atomic startup ideas',
+            'Finds shared problem themes',
+            'Recommends the best first wedge',
+          ]}
+          actions={
+            <button
+              disabled={!selectedIdea || isDecomposing}
+              onClick={onDecomposeIdea}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isDecomposing ? 'Decomposing...' : 'Run on Selected Idea'}
+            </button>
+          }
+        />
+
         <AgentCard
           icon={<Search size={20} />}
           title="Bulk Screen Agent"
@@ -1430,6 +1516,9 @@ function IdeaDetail({
   decisionMemo,
   onCreateDecisionMemo,
   isDecisionMemoing,
+  ideaDecomposition,
+  onDecomposeIdea,
+  isDecomposing,
 }: {
   idea: IdeaRow | null
   analysis?: AnalyzedIdea
@@ -1444,6 +1533,9 @@ function IdeaDetail({
   decisionMemo?: DecisionMemo
   onCreateDecisionMemo: () => void
   isDecisionMemoing: boolean
+  ideaDecomposition?: IdeaDecomposition
+  onDecomposeIdea: () => void
+  isDecomposing: boolean
 }) {
   if (!idea) {
     return (
@@ -1492,13 +1584,23 @@ function IdeaDetail({
           </button>
         </div>
 
-        <button
-          disabled={isDecisionMemoing}
-          onClick={onCreateDecisionMemo}
-          className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {isDecisionMemoing ? 'Writing Memo...' : 'Create Decision Memo'}
-        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            disabled={isDecisionMemoing}
+            onClick={onCreateDecisionMemo}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isDecisionMemoing ? 'Writing Memo...' : 'Decision Memo'}
+          </button>
+
+          <button
+            disabled={isDecomposing}
+            onClick={onDecomposeIdea}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isDecomposing ? 'Decomposing...' : 'Decompose Idea'}
+          </button>
+        </div>
       </div>
 
       {analysis && (
@@ -1585,6 +1687,7 @@ function IdeaDetail({
         </>
       )}
 
+      {ideaDecomposition && <IdeaDecompositionPanel decomposition={ideaDecomposition} />}
       {decisionMemo && <DecisionMemoPanel memo={decisionMemo} />}
       {researchBrief && <ResearchBriefPanel brief={researchBrief} />}
       {validationPlan && <ValidationPlanPanel plan={validationPlan} />}
@@ -1597,6 +1700,108 @@ function IdeaDetail({
     </div>
   )
 }
+
+function IdeaDecompositionPanel({
+  decomposition,
+}: {
+  decomposition: IdeaDecomposition
+}) {
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-semibold">Idea Decomposition</h4>
+          <p className="mt-1 text-sm leading-6 text-gray-600">
+            {decomposition.original_idea_summary}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 p-3 text-center">
+          <p className="text-2xl font-bold">
+            {Math.round(decomposition.decomposition_confidence * 100)}%
+          </p>
+          <p className="text-xs text-gray-500">confidence</p>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-xl bg-gray-50 p-4">
+        <h5 className="text-sm font-semibold">Recommended Company Thesis</h5>
+        <p className="mt-2 text-sm leading-6 text-gray-600">
+          {decomposition.recommended_company_thesis}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <h5 className="text-sm font-semibold">Recommended First Wedge</h5>
+        <p className="mt-2 text-sm leading-6 text-gray-600">
+          {decomposition.recommended_first_wedge}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <h5 className="text-sm font-semibold">Shared Problem Themes</h5>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+          {decomposition.shared_problem_themes.map((theme) => (
+            <li key={theme}>{theme}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="mt-5">
+        <h5 className="text-sm font-semibold">Atomic Ideas</h5>
+        <div className="mt-3 space-y-3">
+          {decomposition.atomic_ideas.map((atomicIdea) => (
+            <div
+              key={atomicIdea.title}
+              className="rounded-xl border border-gray-200 p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-semibold">{atomicIdea.title}</p>
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    {atomicIdea.description}
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-gray-50 px-3 py-2 text-center">
+                  <p className="font-bold">{atomicIdea.initial_score_hint}</p>
+                  <p className="text-xs text-gray-500">hint</p>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2 text-sm text-gray-600">
+                <p>
+                  <span className="font-medium text-gray-800">Problem:</span>{' '}
+                  {atomicIdea.problem_being_solved}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-800">Customer:</span>{' '}
+                  {atomicIdea.target_customer}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-800">Why separate:</span>{' '}
+                  {atomicIdea.why_this_should_be_separate}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {decomposition.ethics_or_legal_flags.length > 0 && (
+        <div className="mt-5">
+          <h5 className="text-sm font-semibold">Ethics / Legal Flags</h5>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+            {decomposition.ethics_or_legal_flags.map((flag) => (
+              <li key={flag}>{flag}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 function DecisionMemoPanel({ memo }: { memo: DecisionMemo }) {
   return (

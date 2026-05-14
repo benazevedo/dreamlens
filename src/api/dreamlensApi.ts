@@ -306,3 +306,52 @@ export async function createDecisionMemo(
 
   return response.json()
 }
+
+
+export type AtomicIdea = {
+  title: string
+  description: string
+  problem_being_solved: string
+  target_customer: string
+  product_type: string
+  why_this_should_be_separate: string
+  initial_score_hint: number
+}
+
+export type IdeaDecomposition = {
+  original_idea_summary: string
+  is_compound_idea: boolean
+  atomic_ideas: AtomicIdea[]
+  shared_problem_themes: string[]
+  recommended_company_thesis: string
+  recommended_first_wedge: string
+  should_evaluate_separately: boolean
+  ethics_or_legal_flags: string[]
+  decomposition_confidence: number
+}
+
+export type IdeaDecompositionInput = {
+  id: string
+  rowNumber: number
+  idea: string
+  description?: string
+  problem?: string
+}
+
+export async function decomposeIdea(
+  idea: IdeaDecompositionInput,
+): Promise<IdeaDecomposition> {
+  const response = await fetch(`${API_BASE_URL}/analyze/decompose-idea`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ idea }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Idea decomposition failed: ${response.status}`)
+  }
+
+  return response.json()
+}

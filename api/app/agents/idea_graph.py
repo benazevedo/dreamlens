@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List, Optional, TypedDict
 
 from dotenv import load_dotenv
@@ -6,7 +7,15 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
 
-load_dotenv()
+# Load env vars from both the backend folder and the project root.
+# This lets you keep .env in either:
+#   /dreamlens/api/.env
+#   /dreamlens/.env
+API_DIR = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = API_DIR.parent
+
+load_dotenv(API_DIR / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 class IdeaInput(BaseModel):

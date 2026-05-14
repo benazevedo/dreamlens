@@ -254,3 +254,55 @@ export async function createResearchBrief(
 
   return response.json()
 }
+
+export type DecisionMemo = {
+  key: string
+  idea_name: string
+  decision: 'Pursue' | 'Validate' | 'Park' | 'Kill'
+  decision_score: number
+  confidence: number
+
+  thesis: string
+  why_now: string
+  strongest_evidence: string[]
+  weakest_evidence: string[]
+
+  best_first_wedge: string
+  ideal_customer_profile: string
+  likely_business_model: string
+  recommended_price_test: string
+
+  biggest_risks: string[]
+  kill_criteria: string[]
+  next_7_days: string[]
+  next_30_days: string[]
+
+  product_suite_potential: string
+  founder_note: string
+}
+
+export type DecisionMemoInput = {
+  key: string
+  idea: Record<string, unknown>
+  analysis?: Record<string, unknown>
+  validationPlan?: Record<string, unknown>
+  researchBrief?: Record<string, unknown>
+}
+
+export async function createDecisionMemo(
+  input: DecisionMemoInput,
+): Promise<DecisionMemo> {
+  const response = await fetch(`${API_BASE_URL}/analyze/decision-memo`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ input }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Decision memo failed: ${response.status}`)
+  }
+
+  return response.json()
+}

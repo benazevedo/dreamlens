@@ -19,10 +19,12 @@ import {
   clusterProblemOpportunities,
   createValidationPlan,
   createResearchBrief,
+  createDecisionMemo,
   type AnalyzedIdea,
   type ProblemCluster,
   type ValidationPlan,
   type ResearchBrief,
+  type DecisionMemo,
 } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
 
@@ -42,9 +44,11 @@ function App() {
   const [problemClusters, setProblemClusters] = useState<ProblemCluster[]>([])
   const [validationPlans, setValidationPlans] = useState<Record<string, ValidationPlan>>({})
   const [researchBriefs, setResearchBriefs] = useState<Record<string, ResearchBrief>>({})
+  const [decisionMemos, setDecisionMemos] = useState<Record<string, DecisionMemo>>({})
   const [isProblemClustering, setIsProblemClustering] = useState(false)
   const [isValidationPlanning, setIsValidationPlanning] = useState(false)
   const [isResearching, setIsResearching] = useState(false)
+  const [isDecisionMemoing, setIsDecisionMemoing] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
@@ -66,6 +70,7 @@ function App() {
         problemClusters?: ProblemCluster[]
         validationPlans?: Record<string, ValidationPlan>
         researchBriefs?: Record<string, ResearchBrief>
+        decisionMemos?: Record<string, DecisionMemo>
         selectedIdeaKey?: string | null
         page?: Page
       }
@@ -75,12 +80,14 @@ function App() {
       const restoredProblemClusters = parsed.problemClusters ?? []
       const restoredValidationPlans = parsed.validationPlans ?? {}
       const restoredResearchBriefs = parsed.researchBriefs ?? {}
+      const restoredDecisionMemos = parsed.decisionMemos ?? {}
 
       setIdeas(restoredIdeas)
       setAnalyzedIdeas(restoredAnalyzedIdeas)
       setProblemClusters(restoredProblemClusters)
       setValidationPlans(restoredValidationPlans)
       setResearchBriefs(restoredResearchBriefs)
+      setDecisionMemos(restoredDecisionMemos)
       setPage(parsed.page ?? 'dashboard')
 
       if (parsed.selectedIdeaKey) {
@@ -113,6 +120,7 @@ function App() {
         problemClusters,
         validationPlans,
         researchBriefs,
+        decisionMemos,
         selectedIdeaKey,
         page,
       }),
@@ -124,6 +132,7 @@ function App() {
     problemClusters,
     validationPlans,
     researchBriefs,
+    decisionMemos,
     selectedIdea,
     page,
   ])
@@ -168,6 +177,7 @@ function App() {
     setProblemClusters([])
     setValidationPlans({})
     setResearchBriefs({})
+    setDecisionMemos({})
     setError(null)
     setPage('dashboard')
   }
@@ -466,6 +476,43 @@ function App() {
     }
   }
 
+  async function handleCreateDecisionMemo() {
+    if (!selectedIdea) {
+      setError('Select an idea before creating a decision memo.')
+      return
+    }
+
+    const key = getIdeaKey(selectedIdea)
+    const analysis = analyzedIdeas[key]
+    const validationPlan = validationPlans[key]
+    const researchBrief = researchBriefs[key]
+
+    setIsDecisionMemoing(true)
+    setError(null)
+
+    try {
+      const memo = await createDecisionMemo({
+        key,
+        idea: selectedIdea as unknown as Record<string, unknown>,
+        analysis: analysis as unknown as Record<string, unknown>,
+        validationPlan: validationPlan as unknown as Record<string, unknown>,
+        researchBrief: researchBrief as unknown as Record<string, unknown>,
+      })
+
+      setDecisionMemos((current) => ({
+        ...current,
+        [key]: memo,
+      }))
+
+      setPage('dashboard')
+    } catch (err) {
+      console.error(err)
+      setError('Decision memo failed. Check the backend terminal for details.')
+    } finally {
+      setIsDecisionMemoing(false)
+    }
+  }
+
   function handleExportCsv() {
     if (ideas.length === 0) return
     exportIdeasCsv(ideas, analyzedIdeas)
@@ -554,6 +601,11 @@ function App() {
             }
             onCreateResearchBrief={handleCreateResearchBrief}
             isResearching={isResearching}
+            selectedDecisionMemo={
+              selectedIdea ? decisionMemos[getIdeaKey(selectedIdea)] : undefined
+            }
+            onCreateDecisionMemo={handleCreateDecisionMemo}
+            isDecisionMemoing={isDecisionMemoing}
           />
         )}
 
@@ -596,6 +648,8 @@ function App() {
             isValidationPlanning={isValidationPlanning}
             onCreateResearchBrief={handleCreateResearchBrief}
             isResearching={isResearching}
+            onCreateDecisionMemo={handleCreateDecisionMemo}
+            isDecisionMemoing={isDecisionMemoing}
           />
         )}
       </section>
@@ -690,6 +744,9 @@ function DashboardPage({
   selectedResearchBrief,
   onCreateResearchBrief,
   isResearching,
+  selectedDecisionMemo,
+  onCreateDecisionMemo,
+  isDecisionMemoing,
 }: {
   stats: {
     total: number
@@ -710,6 +767,9 @@ function DashboardPage({
   selectedResearchBrief?: ResearchBrief
   onCreateResearchBrief: () => void
   isResearching: boolean
+  selectedDecisionMemo?: DecisionMemo
+  onCreateDecisionMemo: () => void
+  isDecisionMemoing: boolean
 }) {
   const topIdeas = rankedIdeas
     .filter((idea) => analyzedIdeas[getIdeaKey(idea)])
@@ -781,6 +841,9 @@ function DashboardPage({
           researchBrief={selectedResearchBrief}
           onCreateResearchBrief={onCreateResearchBrief}
           isResearching={isResearching}
+          decisionMemo={selectedDecisionMemo}
+          onCreateDecisionMemo={onCreateDecisionMemo}
+          isDecisionMemoing={isDecisionMemoing}
         />
       </div>
     </>
@@ -1164,6 +1227,8 @@ function AgentsPage({
   isValidationPlanning,
   onCreateResearchBrief,
   isResearching,
+  onCreateDecisionMemo,
+  isDecisionMemoing,
 }: {
   ideas: IdeaRow[]
   analyzedCount: number
@@ -1180,6 +1245,8 @@ function AgentsPage({
   isValidationPlanning: boolean
   onCreateResearchBrief: () => void
   isResearching: boolean
+  onCreateDecisionMemo: () => void
+  isDecisionMemoing: boolean
 }) {
   return (
     <div className="grid grid-cols-[1fr_420px] gap-6">
@@ -1281,6 +1348,28 @@ function AgentsPage({
         />
 
         <AgentCard
+          icon={<CheckCircle2 size={20} />}
+          title="Decision Memo Agent"
+          status="Active"
+          description="Synthesizes analysis, validation, and research into a founder decision: pursue, validate, park, or kill."
+          steps={[
+            'Final opportunity thesis',
+            'Go / no-go decision',
+            'Best first wedge',
+            'Kill criteria and next actions',
+          ]}
+          actions={
+            <button
+              disabled={!selectedIdea || isDecisionMemoing}
+              onClick={onCreateDecisionMemo}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isDecisionMemoing ? 'Writing Memo...' : 'Run on Selected Idea'}
+            </button>
+          }
+        />
+
+        <AgentCard
           icon={<Search size={20} />}
           title="Research Agents"
           status="Active"
@@ -1338,6 +1427,9 @@ function IdeaDetail({
   researchBrief,
   onCreateResearchBrief,
   isResearching,
+  decisionMemo,
+  onCreateDecisionMemo,
+  isDecisionMemoing,
 }: {
   idea: IdeaRow | null
   analysis?: AnalyzedIdea
@@ -1349,6 +1441,9 @@ function IdeaDetail({
   researchBrief?: ResearchBrief
   onCreateResearchBrief: () => void
   isResearching: boolean
+  decisionMemo?: DecisionMemo
+  onCreateDecisionMemo: () => void
+  isDecisionMemoing: boolean
 }) {
   if (!idea) {
     return (
@@ -1396,6 +1491,14 @@ function IdeaDetail({
             {isResearching ? 'Researching...' : 'Run Research Brief'}
           </button>
         </div>
+
+        <button
+          disabled={isDecisionMemoing}
+          onClick={onCreateDecisionMemo}
+          className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isDecisionMemoing ? 'Writing Memo...' : 'Create Decision Memo'}
+        </button>
       </div>
 
       {analysis && (
@@ -1482,6 +1585,7 @@ function IdeaDetail({
         </>
       )}
 
+      {decisionMemo && <DecisionMemoPanel memo={decisionMemo} />}
       {researchBrief && <ResearchBriefPanel brief={researchBrief} />}
       {validationPlan && <ValidationPlanPanel plan={validationPlan} />}
 
@@ -1493,6 +1597,71 @@ function IdeaDetail({
     </div>
   )
 }
+
+function DecisionMemoPanel({ memo }: { memo: DecisionMemo }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-semibold">Decision Memo</h4>
+          <p className="mt-1 text-2xl font-bold">{memo.decision}</p>
+          <p className="mt-2 text-sm leading-6 text-gray-600">{memo.thesis}</p>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 p-3 text-center">
+          <p className="text-2xl font-bold">{memo.decision_score}</p>
+          <p className="text-xs text-gray-500">decision</p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-5">
+        <MemoSection title="Why Now" body={memo.why_now} />
+        <MemoSection title="Best First Wedge" body={memo.best_first_wedge} />
+        <MemoSection title="Ideal Customer Profile" body={memo.ideal_customer_profile} />
+        <MemoSection title="Business Model" body={memo.likely_business_model} />
+        <MemoSection title="Recommended Price Test" body={memo.recommended_price_test} />
+        <MemoSection title="Product Suite Potential" body={memo.product_suite_potential} />
+
+        <MemoList title="Strongest Evidence" items={memo.strongest_evidence} />
+        <MemoList title="Weakest Evidence" items={memo.weakest_evidence} />
+        <MemoList title="Biggest Risks" items={memo.biggest_risks} />
+        <MemoList title="Kill Criteria" items={memo.kill_criteria} />
+        <MemoList title="Next 7 Days" items={memo.next_7_days} />
+        <MemoList title="Next 30 Days" items={memo.next_30_days} />
+
+        <div className="rounded-xl bg-gray-50 p-4">
+          <h5 className="text-sm font-semibold">Founder Note</h5>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            {memo.founder_note}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MemoSection({ title, body }: { title: string; body: string }) {
+  return (
+    <div>
+      <h5 className="text-sm font-semibold">{title}</h5>
+      <p className="mt-2 text-sm leading-6 text-gray-600">{body}</p>
+    </div>
+  )
+}
+
+function MemoList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h5 className="text-sm font-semibold">{title}</h5>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 
 function ResearchBriefPanel({ brief }: { brief: ResearchBrief }) {
   return (

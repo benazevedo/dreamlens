@@ -20,6 +20,11 @@ from app.agents.research_agents import (
     ResearchBrief,
     create_research_brief,
 )
+from app.agents.decision_memo import (
+    DecisionMemoInput,
+    DecisionMemo,
+    create_decision_memo,
+)
 
 
 app = FastAPI(title="DreamLens API", version="0.3.0")
@@ -100,6 +105,10 @@ class ResearchBriefRequest(BaseModel):
     idea: ResearchIdeaInput
 
 
+class DecisionMemoRequest(BaseModel):
+    input: DecisionMemoInput
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "dreamlens-api"}
@@ -136,6 +145,17 @@ def analyze_research_brief(request: ResearchBriefRequest):
     """
 
     return create_research_brief(request.idea)
+
+
+
+@app.post("/analyze/decision-memo", response_model=DecisionMemo)
+def analyze_decision_memo(request: DecisionMemoRequest):
+    """
+    Final synthesis agent.
+    Combines idea, analysis, validation, and research into a founder decision memo.
+    """
+
+    return create_decision_memo(request.input)
 
 
 @app.post("/analyze/bulk-ai-screen", response_model=List[AnalyzedIdea])

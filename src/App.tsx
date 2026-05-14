@@ -18,9 +18,11 @@ import {
   runDeepAiScreen,
   clusterProblemOpportunities,
   createValidationPlan,
+  createResearchBrief,
   type AnalyzedIdea,
   type ProblemCluster,
   type ValidationPlan,
+  type ResearchBrief,
 } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
 
@@ -39,8 +41,10 @@ function App() {
   const [analyzedIdeas, setAnalyzedIdeas] = useState<Record<string, AnalyzedIdea>>({})
   const [problemClusters, setProblemClusters] = useState<ProblemCluster[]>([])
   const [validationPlans, setValidationPlans] = useState<Record<string, ValidationPlan>>({})
+  const [researchBriefs, setResearchBriefs] = useState<Record<string, ResearchBrief>>({})
   const [isProblemClustering, setIsProblemClustering] = useState(false)
   const [isValidationPlanning, setIsValidationPlanning] = useState(false)
+  const [isResearching, setIsResearching] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
@@ -61,6 +65,7 @@ function App() {
         analyzedIdeas?: Record<string, AnalyzedIdea>
         problemClusters?: ProblemCluster[]
         validationPlans?: Record<string, ValidationPlan>
+        researchBriefs?: Record<string, ResearchBrief>
         selectedIdeaKey?: string | null
         page?: Page
       }
@@ -69,11 +74,13 @@ function App() {
       const restoredAnalyzedIdeas = parsed.analyzedIdeas ?? {}
       const restoredProblemClusters = parsed.problemClusters ?? []
       const restoredValidationPlans = parsed.validationPlans ?? {}
+      const restoredResearchBriefs = parsed.researchBriefs ?? {}
 
       setIdeas(restoredIdeas)
       setAnalyzedIdeas(restoredAnalyzedIdeas)
       setProblemClusters(restoredProblemClusters)
       setValidationPlans(restoredValidationPlans)
+      setResearchBriefs(restoredResearchBriefs)
       setPage(parsed.page ?? 'dashboard')
 
       if (parsed.selectedIdeaKey) {
@@ -105,6 +112,7 @@ function App() {
         analyzedIdeas,
         problemClusters,
         validationPlans,
+        researchBriefs,
         selectedIdeaKey,
         page,
       }),
@@ -115,6 +123,7 @@ function App() {
     analyzedIdeas,
     problemClusters,
     validationPlans,
+    researchBriefs,
     selectedIdea,
     page,
   ])
@@ -158,6 +167,7 @@ function App() {
     setAnalyzedIdeas({})
     setProblemClusters([])
     setValidationPlans({})
+    setResearchBriefs({})
     setError(null)
     setPage('dashboard')
   }
@@ -405,6 +415,57 @@ function App() {
     }
   }
 
+  async function handleCreateResearchBrief() {
+    if (!selectedIdea) {
+      setError('Select an idea before creating a research brief.')
+      return
+    }
+
+    const key = getIdeaKey(selectedIdea)
+    const analysis = analyzedIdeas[key]
+
+    const problemBeingSolved =
+      selectedIdea.problem ||
+      analysis?.problemBeingSolved ||
+      selectedIdea.description ||
+      selectedIdea.idea
+
+    setIsResearching(true)
+    setError(null)
+
+    try {
+      const brief = await createResearchBrief({
+        key,
+        id: selectedIdea.id,
+        rowNumber: selectedIdea.rowNumber,
+        idea: selectedIdea.idea,
+        description: selectedIdea.description,
+        problemBeingSolved,
+        targetCustomers: selectedIdea.targetAudience
+          ? [selectedIdea.targetAudience]
+          : analysis?.targetCustomers ?? [],
+        industries:
+          selectedIdea.industries.length > 0
+            ? selectedIdea.industries
+            : analysis?.industries ?? [],
+        overallScore: analysis?.overallScore,
+        recommendation: analysis?.recommendation,
+      })
+
+      setResearchBriefs((current) => ({
+        ...current,
+        [key]: brief,
+      }))
+
+      setPage('dashboard')
+    } catch (err) {
+      console.error(err)
+      setError('Research brief failed. Check the backend terminal for details.')
+    } finally {
+      setIsResearching(false)
+    }
+  }
+
   function handleExportCsv() {
     if (ideas.length === 0) return
     exportIdeasCsv(ideas, analyzedIdeas)
@@ -488,6 +549,11 @@ function App() {
             }
             onCreateValidationPlan={handleCreateValidationPlan}
             isValidationPlanning={isValidationPlanning}
+            selectedResearchBrief={
+              selectedIdea ? researchBriefs[getIdeaKey(selectedIdea)] : undefined
+            }
+            onCreateResearchBrief={handleCreateResearchBrief}
+            isResearching={isResearching}
           />
         )}
 
@@ -528,6 +594,8 @@ function App() {
             isProblemClustering={isProblemClustering}
             onCreateValidationPlan={handleCreateValidationPlan}
             isValidationPlanning={isValidationPlanning}
+            onCreateResearchBrief={handleCreateResearchBrief}
+            isResearching={isResearching}
           />
         )}
       </section>
@@ -619,6 +687,9 @@ function DashboardPage({
   selectedValidationPlan,
   onCreateValidationPlan,
   isValidationPlanning,
+  selectedResearchBrief,
+  onCreateResearchBrief,
+  isResearching,
 }: {
   stats: {
     total: number
@@ -636,6 +707,9 @@ function DashboardPage({
   selectedValidationPlan?: ValidationPlan
   onCreateValidationPlan: () => void
   isValidationPlanning: boolean
+  selectedResearchBrief?: ResearchBrief
+  onCreateResearchBrief: () => void
+  isResearching: boolean
 }) {
   const topIdeas = rankedIdeas
     .filter((idea) => analyzedIdeas[getIdeaKey(idea)])
@@ -704,6 +778,9 @@ function DashboardPage({
           validationPlan={selectedValidationPlan}
           onCreateValidationPlan={onCreateValidationPlan}
           isValidationPlanning={isValidationPlanning}
+          researchBrief={selectedResearchBrief}
+          onCreateResearchBrief={onCreateResearchBrief}
+          isResearching={isResearching}
         />
       </div>
     </>
@@ -1085,6 +1162,8 @@ function AgentsPage({
   isProblemClustering,
   onCreateValidationPlan,
   isValidationPlanning,
+  onCreateResearchBrief,
+  isResearching,
 }: {
   ideas: IdeaRow[]
   analyzedCount: number
@@ -1099,6 +1178,8 @@ function AgentsPage({
   isProblemClustering: boolean
   onCreateValidationPlan: () => void
   isValidationPlanning: boolean
+  onCreateResearchBrief: () => void
+  isResearching: boolean
 }) {
   return (
     <div className="grid grid-cols-[1fr_420px] gap-6">
@@ -1200,16 +1281,25 @@ function AgentsPage({
         />
 
         <AgentCard
-          icon={<Sparkles size={20} />}
+          icon={<Search size={20} />}
           title="Research Agents"
-          status="Not built yet"
-          description="The next major upgrade: real web research for competitors, pricing, market size, and evidence."
+          status="Active"
+          description="Runs live web research for competitors, pricing, market evidence, and risks."
           steps={[
-            'Market Sizing Agent',
-            'Competitor Verification Agent',
-            'Pricing Research Agent',
-            'Evidence Checker Agent',
+            'Competitor Research Agent',
+            'Pricing / WTP Research Agent',
+            'Market Evidence Agent',
+            'Evidence Summary Agent with sources',
           ]}
+          actions={
+            <button
+              disabled={!selectedIdea || isResearching}
+              onClick={onCreateResearchBrief}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isResearching ? 'Researching...' : 'Run on Selected Idea'}
+            </button>
+          }
         />
       </div>
 
@@ -1230,7 +1320,7 @@ function AgentsPage({
         </div>
 
         <div className="mt-6 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-600">
-          Use bulk screening to rank many ideas quickly. Then click a promising idea in the Ideas tab and run deep analysis here.
+          Use bulk screening to rank many ideas quickly. Then select a promising idea and run deep analysis, validation, and research.
         </div>
       </div>
     </div>
@@ -1242,19 +1332,23 @@ function IdeaDetail({
   analysis,
   onRunDeepAnalysis,
   isDeepAnalyzing,
-  onRunProblemClustering,
-  isProblemClustering,
+  validationPlan,
   onCreateValidationPlan,
   isValidationPlanning,
+  researchBrief,
+  onCreateResearchBrief,
+  isResearching,
 }: {
   idea: IdeaRow | null
   analysis?: AnalyzedIdea
   onRunDeepAnalysis: () => void
   isDeepAnalyzing: boolean
-  onRunProblemClustering: () => void
-  isProblemClustering: boolean
+  validationPlan?: ValidationPlan
   onCreateValidationPlan: () => void
   isValidationPlanning: boolean
+  researchBrief?: ResearchBrief
+  onCreateResearchBrief: () => void
+  isResearching: boolean
 }) {
   if (!idea) {
     return (
@@ -1276,7 +1370,7 @@ function IdeaDetail({
         <h3 className="mt-1 text-xl font-bold">{idea.idea || 'Untitled idea'}</h3>
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3">
+      <div className="mb-5 grid grid-cols-1 gap-3">
         <button
           disabled={isDeepAnalyzing}
           onClick={onRunDeepAnalysis}
@@ -1285,13 +1379,23 @@ function IdeaDetail({
           {isDeepAnalyzing ? 'Running Deep Analysis...' : 'Run Deep Analysis'}
         </button>
 
-        <button
-          disabled={isValidationPlanning}
-          onClick={onCreateValidationPlan}
-          className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {isValidationPlanning ? 'Creating Plan...' : 'Run Validation Plan'}
-        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            disabled={isValidationPlanning}
+            onClick={onCreateValidationPlan}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isValidationPlanning ? 'Creating Plan...' : 'Run Validation Plan'}
+          </button>
+
+          <button
+            disabled={isResearching}
+            onClick={onCreateResearchBrief}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isResearching ? 'Researching...' : 'Run Research Brief'}
+          </button>
+        </div>
       </div>
 
       {analysis && (
@@ -1378,6 +1482,7 @@ function IdeaDetail({
         </>
       )}
 
+      {researchBrief && <ResearchBriefPanel brief={researchBrief} />}
       {validationPlan && <ValidationPlanPanel plan={validationPlan} />}
 
       {!analysis && (
@@ -1388,6 +1493,106 @@ function IdeaDetail({
     </div>
   )
 }
+
+function ResearchBriefPanel({ brief }: { brief: ResearchBrief }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-semibold">Research Brief</h4>
+          <p className="mt-1 text-sm leading-6 text-gray-600">
+            Evidence quality: {brief.evidence_quality}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 p-3 text-center">
+          <p className="text-2xl font-bold">
+            {Math.round(brief.confidence * 100)}%
+          </p>
+          <p className="text-xs text-gray-500">confidence</p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-5">
+        <ResearchSection title="Competitor Summary" body={brief.competitor_summary} />
+        <ResearchList title="Competitors" items={brief.competitors} />
+        <ResearchList title="Competitor Moats" items={brief.competitor_moats} />
+
+        <ResearchSection title="Pricing Summary" body={brief.pricing_summary} />
+        <ResearchSection title="Likely Price Range" body={brief.likely_price_range} />
+        <ResearchList
+          title="Willingness-to-Pay Notes"
+          items={brief.willingness_to_pay_notes}
+        />
+
+        <ResearchSection title="Market Summary" body={brief.market_summary} />
+        <ResearchList title="Market Evidence" items={brief.market_evidence} />
+
+        <ResearchList title="Risks and Unknowns" items={brief.risks_and_unknowns} />
+        <ResearchList
+          title="Next Research Steps"
+          items={brief.recommended_next_research_steps}
+        />
+
+        <div>
+          <h5 className="text-sm font-semibold">Sources</h5>
+          <div className="mt-2 space-y-3">
+            {brief.sources.map((source) => (
+              <a
+                key={source.url}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-xl border border-gray-200 p-3 hover:bg-gray-50"
+              >
+                <p className="text-sm font-medium">{source.title}</p>
+                <p className="mt-1 break-all text-xs text-gray-500">{source.url}</p>
+                <p className="mt-2 line-clamp-3 text-sm leading-6 text-gray-600">
+                  {source.content}
+                </p>
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResearchSection({
+  title,
+  body,
+}: {
+  title: string
+  body: string
+}) {
+  return (
+    <div>
+      <h5 className="text-sm font-semibold">{title}</h5>
+      <p className="mt-2 text-sm leading-6 text-gray-600">{body}</p>
+    </div>
+  )
+}
+
+function ResearchList({
+  title,
+  items,
+}: {
+  title: string
+  items: string[]
+}) {
+  return (
+    <div>
+      <h5 className="text-sm font-semibold">{title}</h5>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 
 function ValidationPlanPanel({ plan }: { plan: ValidationPlan }) {
   return (

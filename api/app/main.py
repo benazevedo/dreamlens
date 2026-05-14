@@ -15,6 +15,11 @@ from app.agents.validation_graph import (
     ValidationPlan,
     create_validation_plan,
 )
+from app.agents.research_agents import (
+    ResearchIdeaInput,
+    ResearchBrief,
+    create_research_brief,
+)
 
 
 app = FastAPI(title="DreamLens API", version="0.3.0")
@@ -91,6 +96,10 @@ class ValidationPlanRequest(BaseModel):
     idea: ValidationIdeaInput
 
 
+class ResearchBriefRequest(BaseModel):
+    idea: ResearchIdeaInput
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "dreamlens-api"}
@@ -116,6 +125,17 @@ def analyze_validation_plan(request: ValidationPlanRequest):
     """
 
     return create_validation_plan(request.idea)
+
+
+
+@app.post("/analyze/research-brief", response_model=ResearchBrief)
+def analyze_research_brief(request: ResearchBriefRequest):
+    """
+    Runs live web research agents for one selected idea.
+    Produces competitor, pricing, market, and evidence notes.
+    """
+
+    return create_research_brief(request.idea)
 
 
 @app.post("/analyze/bulk-ai-screen", response_model=List[AnalyzedIdea])

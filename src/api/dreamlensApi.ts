@@ -192,3 +192,65 @@ export async function createValidationPlan(
 
   return response.json()
 }
+
+
+export type ResearchSource = {
+  title: string
+  url: string
+  content: string
+}
+
+export type ResearchBrief = {
+  key: string
+  idea: string
+  problem_being_solved: string
+
+  competitor_summary: string
+  competitors: string[]
+  competitor_moats: string[]
+
+  pricing_summary: string
+  likely_price_range: string
+  willingness_to_pay_notes: string[]
+
+  market_summary: string
+  market_evidence: string[]
+
+  risks_and_unknowns: string[]
+  recommended_next_research_steps: string[]
+
+  evidence_quality: string
+  confidence: number
+  sources: ResearchSource[]
+}
+
+export type ResearchIdeaInput = {
+  key: string
+  id: string
+  rowNumber: number
+  idea: string
+  description?: string
+  problemBeingSolved: string
+  targetCustomers: string[]
+  industries: string[]
+  overallScore?: number
+  recommendation?: string
+}
+
+export async function createResearchBrief(
+  idea: ResearchIdeaInput,
+): Promise<ResearchBrief> {
+  const response = await fetch(`${API_BASE_URL}/analyze/research-brief`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ idea }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Research brief failed: ${response.status}`)
+  }
+
+  return response.json()
+}

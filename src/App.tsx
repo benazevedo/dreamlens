@@ -1,12 +1,19 @@
 import { useMemo, useState } from 'react'
 import { BarChart3, Brain, Database, Play, Upload } from 'lucide-react'
 import { parseIdeasCsv } from './lib/parseIdeasCsv'
+import { runFastScreen, type AnalyzedIdea } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
+
+function getIdeaKey(idea: Pick<IdeaRow, 'id' | 'rowNumber'>) {
+  return `${idea.id}-${idea.rowNumber}`
+}
 
 function App() {
   const [ideas, setIdeas] = useState<IdeaRow[]>([])
   const [selectedIdea, setSelectedIdea] = useState<IdeaRow | null>(null)
+  const [analyzedIdeas, setAnalyzedIdeas] = useState<Record<string, AnalyzedIdea>>({})
   const [isParsing, setIsParsing] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const stats = useMemo(() => {
@@ -23,6 +30,7 @@ function App() {
 
     setIsParsing(true)
     setError(null)
+    setAnalyzedIdeas({})
 
     try {
       const parsedIdeas = await parseIdeasCsv(file)
@@ -35,6 +43,54 @@ function App() {
       setIsParsing(false)
     }
   }
+
+  async function handleRunAnalysis() {
+    if (ideas.length === 0) return
+
+    setIsAnalyzing(true)
+    setError(null)
+
+    setIdeas((currentIdeas) =>
+      currentIdeas.map((idea) => ({
+        ...idea,
+        status: 'running',
+      })),
+    )
+
+    try {
+      const results = await runFastScreen(ideas)
+
+      const byId = results.reduce<Record<string, AnalyzedIdea>>((acc, result) => {
+        acc[`${result.id}-${result.rowNumber}`] = result
+        return acc
+      }, {})
+
+      setAnalyzedIdeas(byId)
+
+      setIdeas((currentIdeas) =>
+        currentIdeas.map((idea) => ({
+          ...idea,
+          status: 'completed',
+        })),
+      )
+    } catch (err) {
+      console.error(err)
+      setError('Analysis failed. Make sure the FastAPI backend is running on port 8000.')
+
+      setIdeas((currentIdeas) =>
+        currentIdeas.map((idea) => ({
+          ...idea,
+          status: 'failed',
+        })),
+      )
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const selectedAnalysis = selectedIdea
+    ? analyzedIdeas[getIdeaKey(selectedIdea)]
+    : undefined
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-950">
@@ -84,11 +140,12 @@ function App() {
             </label>
 
             <button
-              disabled={ideas.length === 0}
+              disabled={ideas.length === 0 || isAnalyzing}
+              onClick={handleRunAnalysis}
               className="flex items-center gap-2 rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Play size={16} />
-              Run Analysis
+              {isAnalyzing ? 'Analyzing...' : 'Run Analysis'}
             </button>
           </div>
         </div>
@@ -124,38 +181,46 @@ function App() {
                     <th className="border-b border-gray-200 px-4 py-3">ID</th>
                     <th className="border-b border-gray-200 px-4 py-3">Idea</th>
                     <th className="border-b border-gray-200 px-4 py-3">Industry</th>
+                    <th className="border-b border-gray-200 px-4 py-3">Score</th>
                     <th className="border-b border-gray-200 px-4 py-3">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ideas.map((idea) => (
-                    <tr
-                      key={`${idea.id}-${idea.rowNumber}`}
-                      onClick={() => setSelectedIdea(idea)}
-                      className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
-                    >
-                      <td className="px-4 py-3 text-gray-500">{idea.id}</td>
-                      <td className="max-w-xl px-4 py-3 font-medium">
-                        {idea.idea || 'Untitled idea'}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {idea.industries.length > 0
-                          ? idea.industries.join(', ')
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                          {idea.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {ideas.map((idea) => {
+                    const analysis = analyzedIdeas[getIdeaKey(idea)]
+
+                    return (
+                      <tr
+                        key={getIdeaKey(idea)}
+                        onClick={() => setSelectedIdea(idea)}
+                        className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
+                      >
+                        <td className="px-4 py-3 text-gray-500">{idea.id}</td>
+                        <td className="max-w-xl px-4 py-3 font-medium">
+                          {idea.idea || 'Untitled idea'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">
+                          {idea.industries.length > 0
+                            ? idea.industries.join(', ')
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 font-semibold">
+                          {analysis?.overallScore ?? '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                            {idea.status.replace('_', ' ')}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
 
-          <IdeaDetail idea={selectedIdea} />
+          <IdeaDetail idea={selectedIdea} analysis={selectedAnalysis} />
         </div>
       </section>
     </main>
@@ -171,7 +236,13 @@ function StatCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function IdeaDetail({ idea }: { idea: IdeaRow | null }) {
+function IdeaDetail({
+  idea,
+  analysis,
+}: {
+  idea: IdeaRow | null
+  analysis?: AnalyzedIdea
+}) {
   if (!idea) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -184,7 +255,7 @@ function IdeaDetail({ idea }: { idea: IdeaRow | null }) {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+    <div className="max-h-[760px] overflow-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="mb-5">
         <p className="text-xs uppercase tracking-wide text-gray-500">
           Idea #{idea.id}
@@ -192,25 +263,80 @@ function IdeaDetail({ idea }: { idea: IdeaRow | null }) {
         <h3 className="mt-1 text-xl font-bold">{idea.idea || 'Untitled idea'}</h3>
       </div>
 
+      {analysis && (
+        <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm text-gray-500">DreamLens Score</p>
+              <p className="mt-1 text-4xl font-bold">{analysis.overallScore}</p>
+            </div>
+            <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-600">
+              Confidence: {Math.round(analysis.confidence * 100)}%
+            </div>
+          </div>
+
+          <p className="mt-4 text-sm leading-6 text-gray-700">
+            {analysis.recommendation}
+          </p>
+        </div>
+      )}
+
       <DetailSection label="Description" value={idea.description} />
       <DetailSection label="Problem Being Solved" value={idea.problem} />
       <DetailSection label="Target Audience" value={idea.targetAudience} />
       <DetailSection label="Product Name" value={idea.productName} />
-      <DetailSection label="Competitors" value={idea.competitors} />
-      <DetailSection label="Ethics Risk" value={idea.ethicsRisk} />
+      <DetailSection label="Existing Competitors" value={idea.competitors} />
 
-      <div className="mt-5 rounded-xl bg-gray-50 p-4">
-        <h4 className="text-sm font-semibold">Existing Scores</h4>
-        <dl className="mt-3 space-y-2 text-sm">
-          <ScoreRow label="Problem Severity" value={idea.problemSeverity} />
-          <ScoreRow label="Willingness to Pay" value={idea.willingnessToPay} />
-          <ScoreRow label="Market Size" value={idea.marketSize} />
-          <ScoreRow label="Audience Clarity" value={idea.audienceClarity} />
-          <ScoreRow label="Founder Fit" value={idea.founderIdeaFit} />
-          <ScoreRow label="Competitive Whitespace" value={idea.competitiveWhitespace} />
-          <ScoreRow label="Speed to MVP" value={idea.speedToMvp} />
-        </dl>
-      </div>
+      {analysis && (
+        <>
+          <div className="mt-5 rounded-xl bg-gray-50 p-4">
+            <h4 className="text-sm font-semibold">AI Scores</h4>
+            <dl className="mt-3 space-y-2 text-sm">
+              <ScoreRow label="Problem Pain" value={analysis.scores.problemPain} />
+              <ScoreRow label="Willingness to Pay" value={analysis.scores.willingnessToPay} />
+              <ScoreRow label="Market Size" value={analysis.scores.marketSize} />
+              <ScoreRow label="Customer Reachability" value={analysis.scores.customerReachability} />
+              <ScoreRow label="Founder Fit" value={analysis.scores.founderFit} />
+              <ScoreRow label="Competitive Whitespace" value={analysis.scores.competitiveWhitespace} />
+              <ScoreRow label="Speed to MVP" value={analysis.scores.speedToMvp} />
+              <ScoreRow label="Gross Margin" value={analysis.scores.grossMargin} />
+              <ScoreRow label="Ethics Risk" value={analysis.scores.ethicsRisk} />
+            </dl>
+          </div>
+
+          <div className="mt-5">
+            <h4 className="text-sm font-semibold">Suggested Names</h4>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {analysis.suggestedNames.map((name) => (
+                <span
+                  key={name}
+                  className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <h4 className="text-sm font-semibold">Competitor Notes</h4>
+            <div className="mt-2 space-y-3">
+              {analysis.competitors.map((competitor) => (
+                <div key={competitor.name} className="rounded-xl border border-gray-200 p-3">
+                  <p className="text-sm font-medium">{competitor.name}</p>
+                  <p className="mt-1 text-sm text-gray-600">{competitor.moat}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {!analysis && (
+        <div className="mt-5 rounded-xl bg-gray-50 p-4 text-sm text-gray-500">
+          Run analysis to generate scores, competitor notes, ethics notes, and names.
+        </div>
+      )}
     </div>
   )
 }
@@ -224,7 +350,7 @@ function DetailSection({ label, value }: { label: string; value?: string }) {
   )
 }
 
-function ScoreRow({ label, value }: { label: string; value?: string }) {
+function ScoreRow({ label, value }: { label: string; value?: string | number }) {
   return (
     <div className="flex justify-between gap-4">
       <dt className="text-gray-500">{label}</dt>

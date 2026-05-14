@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BarChart3, Brain, Database, Play, Upload } from 'lucide-react'
 import { parseIdeasCsv } from './lib/parseIdeasCsv'
-import { runFastScreen, type AnalyzedIdea } from './api/dreamlensApi'
+import { runBulkAiScreen, type AnalyzedIdea } from "./api/dreamlensApi";
 import type { IdeaRow } from './types/idea'
 
 function getIdeaKey(idea: Pick<IdeaRow, 'id' | 'rowNumber'>) {
@@ -58,7 +58,7 @@ function App() {
     )
 
     try {
-      const results = await runFastScreen(ideas)
+      const results = await runBulkAiScreen(ideas, 25);
 
       const byId = results.reduce<Record<string, AnalyzedIdea>>((acc, result) => {
         acc[`${result.id}-${result.rowNumber}`] = result

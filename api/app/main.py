@@ -4,9 +4,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.idea_graph import IdeaInput, analyze_idea_with_ai
+from app.agents.bulk_screen import BulkIdeaInput, analyze_ideas_bulk
 
 
-app = FastAPI(title="DreamLens API", version="0.2.0")
+app = FastAPI(title="DreamLens API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,7 +68,7 @@ class AnalyzedIdea(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     ideas: List[IdeaRow]
-    limit: int = 5
+    limit: int = 10
 
 
 @app.get("/health")
@@ -75,11 +76,90 @@ def health():
     return {"status": "ok", "service": "dreamlens-api"}
 
 
+@app.post("/analyze/bulk-ai-screen", response_model=List[AnalyzedIdea])
+def analyze_bulk_ai_screen(request: AnalyzeRequest):
+    """
+    Cheaper first-pass AI screen.
+    Processes ideas in batches of 10 ideas per LLM call.
+    """
+
+    limited_ideas = request.ideas[: request.limit]
+    batch_size = 10
+    results: List[AnalyzedIdea] = []
+
+    for start in range(0, len(limited_ideas), batch_size):
+        batch = limited_ideas[start : start + batch_size]
+
+        bulk_inputs = [
+            BulkIdeaInput(
+                id=idea.id,
+                rowNumber=idea.rowNumber,
+                idea=idea.idea,
+                description=idea.description,
+                problem=idea.problem,
+                targetAudience=idea.targetAudience,
+                industries=idea.industries,
+            )
+            for idea in batch
+        ]
+
+        bulk_results = analyze_ideas_bulk(bulk_inputs)
+
+        idea_by_key = {
+            f"{idea.id}-{idea.rowNumber}": idea
+            for idea in batch
+        }
+
+        for result in bulk_results:
+            key = f"{result.id}-{result.rowNumber}"
+            source_idea = idea_by_key.get(key)
+
+            competitors = [
+                Competitor(
+                    name=name,
+                    moat="Likely competitor or substitute. Needs deep research verification.",
+                )
+                for name in result.likely_competitors_or_substitutes
+            ]
+
+            results.append(
+                AnalyzedIdea(
+                    id=result.id,
+                    rowNumber=result.rowNumber,
+                    idea=source_idea.idea if source_idea else result.summary,
+                    summary=result.summary,
+                    targetCustomers=result.target_customers,
+                    industries=result.industries,
+                    scores=IdeaScores(
+                        problemPain=result.problem_pain,
+                        willingnessToPay=result.willingness_to_pay,
+                        marketSize=result.market_size,
+                        customerReachability=result.customer_reachability,
+                        founderFit=result.founder_fit,
+                        competitiveWhitespace=result.competitive_whitespace,
+                        speedToMvp=result.speed_to_mvp,
+                        grossMargin=result.gross_margin,
+                        ethicsRisk=result.ethics_risk,
+                    ),
+                    overallScore=result.overall_score,
+                    confidence=result.confidence,
+                    estimatedPriceRange=result.estimated_price_range,
+                    competitors=competitors,
+                    ethicsNotes=result.ethics_notes,
+                    suggestedNames=result.suggested_names,
+                    recommendation=result.recommendation,
+                    status="completed",
+                )
+            )
+
+    return results
+
+
 @app.post("/analyze/ai-screen", response_model=List[AnalyzedIdea])
 def analyze_ai_screen(request: AnalyzeRequest):
     """
-    Real AI workflow.
-    Limit defaults to 5 so you do not accidentally run 309 paid LLM workflows at once.
+    Deep multi-agent workflow.
+    Keep this limited. Use only for selected ideas or top-ranked ideas.
     """
 
     limited_ideas = request.ideas[: request.limit]

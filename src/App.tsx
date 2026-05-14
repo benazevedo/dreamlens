@@ -9,17 +9,20 @@ import {
   Sparkles,
   Upload,
   Download,
+  Network,
 } from 'lucide-react'
 import { parseIdeasCsv } from './lib/parseIdeasCsv'
 import { exportIdeasCsv } from './lib/exportIdeasCsv'
 import {
   runBulkAiScreen,
   runDeepAiScreen,
+  clusterProblemOpportunities,
   type AnalyzedIdea,
+  type ProblemCluster,
 } from './api/dreamlensApi'
 import type { IdeaRow } from './types/idea'
 
-type Page = 'dashboard' | 'ideas' | 'agents'
+type Page = 'dashboard' | 'ideas' | 'problems' | 'agents'
 
 const STORAGE_KEY = 'dreamlens.session.v1'
 
@@ -32,6 +35,8 @@ function App() {
   const [ideas, setIdeas] = useState<IdeaRow[]>([])
   const [selectedIdea, setSelectedIdea] = useState<IdeaRow | null>(null)
   const [analyzedIdeas, setAnalyzedIdeas] = useState<Record<string, AnalyzedIdea>>({})
+  const [problemClusters, setProblemClusters] = useState<ProblemCluster[]>([])
+  const [isProblemClustering, setIsProblemClustering] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
@@ -50,15 +55,18 @@ function App() {
       const parsed = JSON.parse(savedSession) as {
         ideas?: IdeaRow[]
         analyzedIdeas?: Record<string, AnalyzedIdea>
+        problemClusters?: ProblemCluster[]
         selectedIdeaKey?: string | null
         page?: Page
       }
 
       const restoredIdeas = parsed.ideas ?? []
       const restoredAnalyzedIdeas = parsed.analyzedIdeas ?? {}
+      const restoredProblemClusters = parsed.problemClusters ?? []
 
       setIdeas(restoredIdeas)
       setAnalyzedIdeas(restoredAnalyzedIdeas)
+      setProblemClusters(restoredProblemClusters)
       setPage(parsed.page ?? 'dashboard')
 
       if (parsed.selectedIdeaKey) {
@@ -88,11 +96,12 @@ function App() {
       JSON.stringify({
         ideas,
         analyzedIdeas,
+        problemClusters,
         selectedIdeaKey,
         page,
       }),
     )
-  }, [hasHydrated, ideas, analyzedIdeas, selectedIdea, page])
+  }, [hasHydrated, ideas, analyzedIdeas, problemClusters, selectedIdea, page])
 
   const selectedAnalysis = selectedIdea
     ? analyzedIdeas[getIdeaKey(selectedIdea)]
@@ -131,6 +140,7 @@ function App() {
     setIdeas([])
     setSelectedIdea(null)
     setAnalyzedIdeas({})
+    setProblemClusters([])
     setError(null)
     setPage('dashboard')
   }
@@ -279,6 +289,54 @@ function App() {
     }
   }
 
+  async function handleRunProblemClustering() {
+    const items = ideas
+      .map((idea) => {
+        const analysis = analyzedIdeas[getIdeaKey(idea)]
+
+        if (!analysis) return null
+
+        const problemBeingSolved = idea.problem || analysis.problemBeingSolved
+
+        if (!problemBeingSolved) return null
+
+        return {
+          key: getIdeaKey(idea),
+          id: idea.id,
+          rowNumber: idea.rowNumber,
+          idea: idea.idea,
+          problemBeingSolved,
+          targetCustomers: idea.targetAudience
+            ? [idea.targetAudience]
+            : analysis.targetCustomers,
+          industries:
+            idea.industries.length > 0 ? idea.industries : analysis.industries,
+          overallScore: analysis.overallScore,
+          recommendation: analysis.recommendation,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+
+    if (items.length === 0) {
+      setError('Run analysis on some ideas before clustering problems.')
+      return
+    }
+
+    setIsProblemClustering(true)
+    setError(null)
+
+    try {
+      const clusters = await clusterProblemOpportunities(items, 100)
+      setProblemClusters(clusters)
+      setPage('problems')
+    } catch (err) {
+      console.error(err)
+      setError('Problem clustering failed. Check the backend terminal for details.')
+    } finally {
+      setIsProblemClustering(false)
+    }
+  }
+
   function handleExportCsv() {
     if (ideas.length === 0) return
     exportIdeasCsv(ideas, analyzedIdeas)
@@ -304,6 +362,12 @@ function App() {
             icon={<Database size={18} />}
             label="Ideas"
             onClick={() => setPage('ideas')}
+          />
+          <SidebarButton
+            active={page === 'problems'}
+            icon={<Network size={18} />}
+            label="Problems"
+            onClick={() => setPage('problems')}
           />
           <SidebarButton
             active={page === 'agents'}
@@ -364,6 +428,18 @@ function App() {
           />
         )}
 
+        {page === 'problems' && (
+          <ProblemsPage
+            clusters={problemClusters}
+            ideas={ideas}
+            analyzedIdeas={analyzedIdeas}
+            onRunProblemClustering={handleRunProblemClustering}
+            isProblemClustering={isProblemClustering}
+            onSelectIdea={setSelectedIdea}
+            onGoToDetail={() => setPage('dashboard')}
+          />
+        )}
+
         {page === 'agents' && (
           <AgentsPage
             ideas={ideas}
@@ -375,6 +451,8 @@ function App() {
             onRunDeepAnalysis={handleRunDeepAnalysis}
             isBulkAnalyzing={isBulkAnalyzing}
             isDeepAnalyzing={isDeepAnalyzing}
+            onRunProblemClustering={handleRunProblemClustering}
+            isProblemClustering={isProblemClustering}
           />
         )}
       </section>
@@ -463,6 +541,8 @@ function DashboardPage({
   onSelectIdea,
   onRunDeepAnalysis,
   isDeepAnalyzing,
+  onRunProblemClustering,
+  isProblemClustering,
 }: {
   stats: {
     total: number
@@ -477,6 +557,8 @@ function DashboardPage({
   onSelectIdea: (idea: IdeaRow) => void
   onRunDeepAnalysis: () => void
   isDeepAnalyzing: boolean
+  onRunProblemClustering: () => void
+  isProblemClustering: boolean
 }) {
   const topIdeas = rankedIdeas
     .filter((idea) => analyzedIdeas[getIdeaKey(idea)])
@@ -737,6 +819,178 @@ function IdeasPage({
 }
 
 
+function ProblemsPage({
+  clusters,
+  ideas,
+  analyzedIdeas,
+  onRunProblemClustering,
+  isProblemClustering,
+  onSelectIdea,
+  onGoToDetail,
+}: {
+  clusters: ProblemCluster[]
+  ideas: IdeaRow[]
+  analyzedIdeas: Record<string, AnalyzedIdea>
+  onRunProblemClustering: () => void
+  isProblemClustering: boolean
+  onSelectIdea: (idea: IdeaRow) => void
+  onGoToDetail: () => void
+}) {
+  const ideaByKey = useMemo(() => {
+    return ideas.reduce<Record<string, IdeaRow>>((acc, idea) => {
+      acc[getIdeaKey(idea)] = idea
+      return acc
+    }, {})
+  }, [ideas])
+
+  const sortedClusters = useMemo(() => {
+    return [...clusters].sort((a, b) => b.opportunityScore - a.opportunityScore)
+  }, [clusters])
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <h3 className="text-lg font-semibold">Problem Opportunities</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500">
+              This agent groups analyzed ideas by the underlying customer problem. 
+              A cluster can represent a company thesis, with the ideas acting as product lines, wedges, or features.
+            </p>
+          </div>
+
+          <button
+            disabled={Object.keys(analyzedIdeas).length === 0 || isProblemClustering}
+            onClick={onRunProblemClustering}
+            className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isProblemClustering ? 'Clustering...' : 'Cluster Problems'}
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 gap-4">
+          <MiniStat label="Analyzed ideas" value={Object.keys(analyzedIdeas).length} />
+          <MiniStat label="Problem clusters" value={clusters.length} />
+          <MiniStat
+            label="Best cluster score"
+            value={clusters.length ? Math.max(...clusters.map((cluster) => cluster.opportunityScore)) : '—'}
+          />
+        </div>
+      </div>
+
+      {sortedClusters.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500 shadow-sm">
+          Run bulk analysis first, then click Cluster Problems.
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {sortedClusters.map((cluster, index) => {
+            const clusterIdeas = cluster.ideaKeys
+              .map((key) => ideaByKey[key])
+              .filter(Boolean)
+
+            return (
+              <div
+                key={cluster.clusterId}
+                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-6">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Problem Cluster #{index + 1}
+                    </p>
+                    <h3 className="mt-1 text-xl font-bold">{cluster.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-gray-700">
+                      {cluster.problemStatement}
+                    </p>
+                  </div>
+
+                  <div className="min-w-24 rounded-2xl bg-gray-50 p-4 text-center">
+                    <p className="text-3xl font-bold">{cluster.opportunityScore}</p>
+                    <p className="text-xs text-gray-500">opportunity</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-3 gap-4">
+                  <MiniStat label="Primary customer" value={cluster.primaryCustomer} />
+                  <MiniStat label="Ideas in cluster" value={cluster.ideaKeys.length} />
+                  <MiniStat
+                    label="Confidence"
+                    value={`${Math.round(cluster.confidence * 100)}%`}
+                  />
+                </div>
+
+                <div className="mt-5 rounded-xl bg-gray-50 p-4">
+                  <h4 className="text-sm font-semibold">Company/Product Suite Strategy</h4>
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    {cluster.productSuiteStrategy}
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <h4 className="text-sm font-semibold">Why These Belong Together</h4>
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    {cluster.whyTheseBelongTogether}
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <h4 className="text-sm font-semibold">Possible Company Names</h4>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {cluster.suggestedCompanyNames.map((name) => (
+                      <span
+                        key={name}
+                        className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <h4 className="text-sm font-semibold">Products / Ideas in This Cluster</h4>
+                  <div className="mt-3 divide-y divide-gray-100 rounded-xl border border-gray-200">
+                    {clusterIdeas.map((idea) => {
+                      const analysis = analyzedIdeas[getIdeaKey(idea)]
+
+                      return (
+                        <button
+                          key={getIdeaKey(idea)}
+                          onClick={() => {
+                            onSelectIdea(idea)
+                            onGoToDetail()
+                          }}
+                          className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-gray-50"
+                        >
+                          <div>
+                            <p className="font-medium">{idea.idea}</p>
+                            <p className="mt-1 line-clamp-2 text-sm text-gray-500">
+                              {idea.problem || analysis?.problemBeingSolved}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-lg font-bold">
+                              {analysis?.overallScore ?? '—'}
+                            </p>
+                            <p className="text-xs text-gray-500">idea score</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function AgentsPage({
   ideas,
   analyzedCount,
@@ -747,6 +1001,8 @@ function AgentsPage({
   onRunDeepAnalysis,
   isBulkAnalyzing,
   isDeepAnalyzing,
+  onRunProblemClustering,
+  isProblemClustering,
 }: {
   ideas: IdeaRow[]
   analyzedCount: number
@@ -757,6 +1013,8 @@ function AgentsPage({
   onRunDeepAnalysis: () => void
   isBulkAnalyzing: boolean
   isDeepAnalyzing: boolean
+  onRunProblemClustering: () => void
+  isProblemClustering: boolean
 }) {
   return (
     <div className="grid grid-cols-[1fr_420px] gap-6">
@@ -814,6 +1072,28 @@ function AgentsPage({
         />
 
         <AgentCard
+          icon={<Network size={20} />}
+          title="Problem Clustering Agent"
+          status="Active"
+          description="Groups analyzed ideas by shared customer problems so you can spot company/product-suite opportunities."
+          steps={[
+            'Finds similar underlying problems',
+            'Groups related product ideas',
+            'Suggests company theses and names',
+            'Scores the opportunity of each cluster',
+          ]}
+          actions={
+            <button
+              disabled={analyzedCount === 0 || isProblemClustering}
+              onClick={onRunProblemClustering}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isProblemClustering ? 'Clustering...' : 'Cluster Problems'}
+            </button>
+          }
+        />
+
+        <AgentCard
           icon={<Sparkles size={20} />}
           title="Research Agents"
           status="Not built yet"
@@ -856,11 +1136,15 @@ function IdeaDetail({
   analysis,
   onRunDeepAnalysis,
   isDeepAnalyzing,
+  onRunProblemClustering,
+  isProblemClustering,
 }: {
   idea: IdeaRow | null
   analysis?: AnalyzedIdea
   onRunDeepAnalysis: () => void
   isDeepAnalyzing: boolean
+  onRunProblemClustering: () => void
+  isProblemClustering: boolean
 }) {
   if (!idea) {
     return (

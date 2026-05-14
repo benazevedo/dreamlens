@@ -5,6 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.idea_graph import IdeaInput, analyze_idea_with_ai
 from app.agents.bulk_screen import BulkIdeaInput, analyze_ideas_bulk
+from app.agents.problem_clusters import (
+    ProblemCluster,
+    ProblemClusterInput,
+    cluster_problem_opportunities,
+)
+from app.agents.validation_graph import (
+    ValidationIdeaInput,
+    ValidationPlan,
+    create_validation_plan,
+)
 
 
 app = FastAPI(title="DreamLens API", version="0.3.0")
@@ -72,9 +82,40 @@ class AnalyzeRequest(BaseModel):
     limit: int = 10
 
 
+class ProblemClusterRequest(BaseModel):
+    items: List[ProblemClusterInput]
+    limit: int = 100
+
+
+class ValidationPlanRequest(BaseModel):
+    idea: ValidationIdeaInput
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "dreamlens-api"}
+
+
+@app.post("/analyze/problem-clusters", response_model=List[ProblemCluster])
+def analyze_problem_clusters(request: ProblemClusterRequest):
+    """
+    Groups analyzed ideas by underlying customer problem.
+    This helps identify company/product-suite opportunities.
+    """
+
+    limited_items = request.items[: request.limit]
+    return cluster_problem_opportunities(limited_items)
+
+
+
+@app.post("/analyze/validation-plan", response_model=ValidationPlan)
+def analyze_validation_plan(request: ValidationPlanRequest):
+    """
+    Runs validation agents for one selected idea.
+    Produces customer discovery, MVP, and GTM experiment plans.
+    """
+
+    return create_validation_plan(request.idea)
 
 
 @app.post("/analyze/bulk-ai-screen", response_model=List[AnalyzedIdea])

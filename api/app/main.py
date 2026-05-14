@@ -25,6 +25,11 @@ from app.agents.decision_memo import (
     DecisionMemo,
     create_decision_memo,
 )
+from app.agents.idea_decomposer import (
+    IdeaDecompositionInput,
+    IdeaDecomposition,
+    decompose_idea,
+)
 
 
 app = FastAPI(title="DreamLens API", version="0.3.0")
@@ -109,6 +114,10 @@ class DecisionMemoRequest(BaseModel):
     input: DecisionMemoInput
 
 
+class IdeaDecompositionRequest(BaseModel):
+    idea: IdeaDecompositionInput
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "dreamlens-api"}
@@ -156,6 +165,16 @@ def analyze_decision_memo(request: DecisionMemoRequest):
     """
 
     return create_decision_memo(request.input)
+
+
+
+@app.post("/analyze/decompose-idea", response_model=IdeaDecomposition)
+def analyze_idea_decomposition(request: IdeaDecompositionRequest):
+    """
+    Splits long or compound ideas into atomic startup ideas.
+    """
+
+    return decompose_idea(request.idea)
 
 
 @app.post("/analyze/bulk-ai-screen", response_model=List[AnalyzedIdea])

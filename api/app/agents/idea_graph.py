@@ -61,6 +61,7 @@ class RiskAndCompetition(BaseModel):
 
 class FinalIdeaAnalysis(BaseModel):
     summary: str
+    problem_being_solved: str
     target_customers: List[str]
     industries: List[str]
     problem_pain: int = Field(ge=1, le=5)
@@ -236,6 +237,13 @@ def final_synthesis_node(state: IdeaState) -> IdeaState:
 You are DreamLens Agent 4: Final Startup Idea Synthesizer.
 
 Create the final structured analysis.
+
+The field problem_being_solved is extremely important.
+Write a concise, reusable customer problem statement.
+Do not just restate the product idea.
+Example:
+Bad: "An AI app for grading homework."
+Good: "Teachers spend too much time grading assignments and giving useful feedback."
 
 Use this weighted score logic:
 - Problem pain: 15%

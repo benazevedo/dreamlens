@@ -34,6 +34,30 @@ function formatCompetitors(analysis?: AnalyzedIdea): string {
     .join(' | ')
 }
 
+function getFinalProblem(idea: IdeaRow, analysis?: AnalyzedIdea): string {
+  if (idea.problem && idea.problem.trim()) {
+    return idea.problem
+  }
+
+  return analysis?.problemBeingSolved || ''
+}
+
+function getFinalTargetAudience(idea: IdeaRow, analysis?: AnalyzedIdea): string {
+  if (idea.targetAudience && idea.targetAudience.trim()) {
+    return idea.targetAudience
+  }
+
+  return joinList(analysis?.targetCustomers)
+}
+
+function getFinalIndustries(idea: IdeaRow, analysis?: AnalyzedIdea): string {
+  if (idea.industries.length > 0) {
+    return joinList(idea.industries)
+  }
+
+  return joinList(analysis?.industries)
+}
+
 export function exportIdeasCsv(
   ideas: IdeaRow[],
   analyzedIdeas: Record<string, AnalyzedIdea>,
@@ -44,7 +68,12 @@ export function exportIdeasCsv(
     'date',
     'idea',
     'description',
-    'problem',
+
+    'final_problem_being_solved',
+    'final_target_audience',
+    'final_industries',
+
+    'original_problem',
     'original_target_audience',
     'original_product_name',
     'original_competitors',
@@ -67,6 +96,7 @@ export function exportIdeasCsv(
     'gross_margin',
     'ethics_risk',
 
+    'ai_problem_being_solved',
     'ai_target_customers',
     'ai_industries',
     'ai_competitors',
@@ -83,6 +113,11 @@ export function exportIdeasCsv(
       idea.date,
       idea.idea,
       idea.description,
+
+      getFinalProblem(idea, analysis),
+      getFinalTargetAudience(idea, analysis),
+      getFinalIndustries(idea, analysis),
+
       idea.problem,
       idea.targetAudience,
       idea.productName,
@@ -106,6 +141,7 @@ export function exportIdeasCsv(
       analysis?.scores.grossMargin,
       analysis?.scores.ethicsRisk,
 
+      analysis?.problemBeingSolved,
       joinList(analysis?.targetCustomers),
       joinList(analysis?.industries),
       formatCompetitors(analysis),

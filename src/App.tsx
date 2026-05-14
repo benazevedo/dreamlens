@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BarChart3,
   Brain,
@@ -21,6 +21,8 @@ import type { IdeaRow } from './types/idea'
 
 type Page = 'dashboard' | 'ideas' | 'agents'
 
+const STORAGE_KEY = 'dreamlens.session.v1'
+
 function getIdeaKey(idea: Pick<IdeaRow, 'id' | 'rowNumber'>) {
   return `${idea.id}-${idea.rowNumber}`
 }
@@ -34,6 +36,63 @@ function App() {
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false)
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasHydrated, setHasHydrated] = useState(false)
+
+  useEffect(() => {
+    try {
+      const savedSession = localStorage.getItem(STORAGE_KEY)
+
+      if (!savedSession) {
+        setHasHydrated(true)
+        return
+      }
+
+      const parsed = JSON.parse(savedSession) as {
+        ideas?: IdeaRow[]
+        analyzedIdeas?: Record<string, AnalyzedIdea>
+        selectedIdeaKey?: string | null
+        page?: Page
+      }
+
+      const restoredIdeas = parsed.ideas ?? []
+      const restoredAnalyzedIdeas = parsed.analyzedIdeas ?? {}
+
+      setIdeas(restoredIdeas)
+      setAnalyzedIdeas(restoredAnalyzedIdeas)
+      setPage(parsed.page ?? 'dashboard')
+
+      if (parsed.selectedIdeaKey) {
+        const restoredSelectedIdea = restoredIdeas.find(
+          (idea) => getIdeaKey(idea) === parsed.selectedIdeaKey,
+        )
+
+        setSelectedIdea(restoredSelectedIdea ?? restoredIdeas[0] ?? null)
+      } else {
+        setSelectedIdea(restoredIdeas[0] ?? null)
+      }
+    } catch (err) {
+      console.error('Failed to restore DreamLens session:', err)
+      localStorage.removeItem(STORAGE_KEY)
+    } finally {
+      setHasHydrated(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasHydrated) return
+
+    const selectedIdeaKey = selectedIdea ? getIdeaKey(selectedIdea) : null
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ideas,
+        analyzedIdeas,
+        selectedIdeaKey,
+        page,
+      }),
+    )
+  }, [hasHydrated, ideas, analyzedIdeas, selectedIdea, page])
 
   const selectedAnalysis = selectedIdea
     ? analyzedIdeas[getIdeaKey(selectedIdea)]
@@ -66,6 +125,15 @@ function App() {
       needsReview,
     }
   }, [ideas, analyzedIdeas])
+
+  function handleClearSession() {
+    localStorage.removeItem(STORAGE_KEY)
+    setIdeas([])
+    setSelectedIdea(null)
+    setAnalyzedIdeas({})
+    setError(null)
+    setPage('dashboard')
+  }
 
   async function handleFileUpload(file: File | undefined) {
     if (!file) return
@@ -264,6 +332,7 @@ function App() {
           hasIdeas={ideas.length > 0}
           canExport={ideas.length > 0}
           onExportCsv={handleExportCsv}
+          onClearSession={handleClearSession}
         />
 
         {error && (
@@ -321,6 +390,7 @@ function Header({
   hasIdeas,
   canExport,
   onExportCsv,
+  onClearSession,
 }: {
   isParsing: boolean
   onFileUpload: (file: File | undefined) => void
@@ -329,6 +399,7 @@ function Header({
   hasIdeas: boolean
   canExport: boolean
   onExportCsv: () => void
+  onClearSession: () => void
 }) {
   return (
     <div className="mb-8 flex items-center justify-between gap-6">
@@ -360,6 +431,14 @@ function Header({
         >
           <Download size={16} />
           Export CSV
+        </button>
+
+        <button
+          disabled={!hasIdeas}
+          onClick={onClearSession}
+          className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Clear Session
         </button>
 
         <button
@@ -482,24 +561,106 @@ function IdeasPage({
   onSelectIdea: (idea: IdeaRow) => void
   onGoToDetail: () => void
 }) {
+  const [query, setQuery] = useState('')
+  const [minScore, setMinScore] = useState('all')
+  const [maxEthicsRisk, setMaxEthicsRisk] = useState('all')
+
+  const filteredIdeas = useMemo(() => {
+    const search = query.trim().toLowerCase()
+
+    return ideas.filter((idea) => {
+      const analysis = analyzedIdeas[getIdeaKey(idea)]
+      const finalIndustries =
+        idea.industries.length > 0 ? idea.industries : analysis?.industries ?? []
+      const finalTargetAudience =
+        idea.targetAudience || analysis?.targetCustomers.join(', ') || ''
+
+      const searchableText = [
+        idea.id,
+        idea.idea,
+        idea.description,
+        idea.problem,
+        analysis?.problemBeingSolved,
+        finalTargetAudience,
+        finalIndustries.join(', '),
+        analysis?.recommendation,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      const matchesQuery = !search || searchableText.includes(search)
+
+      const score = analysis?.overallScore
+      const matchesScore =
+        minScore === 'all' || (typeof score === 'number' && score >= Number(minScore))
+
+      const ethicsRisk = analysis?.scores.ethicsRisk
+      const matchesEthics =
+        maxEthicsRisk === 'all' ||
+        (typeof ethicsRisk === 'number' && ethicsRisk <= Number(maxEthicsRisk))
+
+      return matchesQuery && matchesScore && matchesEthics
+    })
+  }, [ideas, analyzedIdeas, query, minScore, maxEthicsRisk])
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-gray-200 p-5">
-        <div>
-          <h3 className="text-lg font-semibold">Ideas</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Sorted by DreamLens score when available.
-          </p>
+      <div className="border-b border-gray-200 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold">Ideas</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Sorted by DreamLens score. AI-inferred industries are shown when the original sheet is blank.
+            </p>
+          </div>
+
+          {selectedIdea && (
+            <button
+              onClick={onGoToDetail}
+              className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            >
+              Open Selected Detail
+            </button>
+          )}
         </div>
 
-        {selectedIdea && (
-          <button
-            onClick={onGoToDetail}
-            className="rounded-xl bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+        <div className="mt-5 grid grid-cols-[1fr_180px_180px] gap-3">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search ideas, industries, customers, problems..."
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-gray-400"
+          />
+
+          <select
+            value={minScore}
+            onChange={(event) => setMinScore(event.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-gray-400"
           >
-            Open Selected Detail
-          </button>
-        )}
+            <option value="all">Any score</option>
+            <option value="50">Score 50+</option>
+            <option value="60">Score 60+</option>
+            <option value="70">Score 70+</option>
+            <option value="80">Score 80+</option>
+          </select>
+
+          <select
+            value={maxEthicsRisk}
+            onChange={(event) => setMaxEthicsRisk(event.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-gray-400"
+          >
+            <option value="all">Any ethics risk</option>
+            <option value="1">Ethics risk ≤ 1</option>
+            <option value="2">Ethics risk ≤ 2</option>
+            <option value="3">Ethics risk ≤ 3</option>
+            <option value="4">Ethics risk ≤ 4</option>
+          </select>
+        </div>
+
+        <p className="mt-3 text-xs text-gray-500">
+          Showing {filteredIdeas.length} of {ideas.length} ideas.
+        </p>
       </div>
 
       <div className="max-h-[720px] overflow-auto">
@@ -508,7 +669,9 @@ function IdeasPage({
             <tr>
               <th className="border-b border-gray-200 px-4 py-3">ID</th>
               <th className="border-b border-gray-200 px-4 py-3">Idea</th>
+              <th className="border-b border-gray-200 px-4 py-3">Problem</th>
               <th className="border-b border-gray-200 px-4 py-3">Industry</th>
+              <th className="border-b border-gray-200 px-4 py-3">Target Audience</th>
               <th className="border-b border-gray-200 px-4 py-3">Score</th>
               <th className="border-b border-gray-200 px-4 py-3">Confidence</th>
               <th className="border-b border-gray-200 px-4 py-3">Ethics</th>
@@ -516,9 +679,19 @@ function IdeasPage({
             </tr>
           </thead>
           <tbody>
-            {ideas.map((idea) => {
+            {filteredIdeas.map((idea) => {
               const analysis = analyzedIdeas[getIdeaKey(idea)]
-              const selected = selectedIdea && getIdeaKey(selectedIdea) === getIdeaKey(idea)
+              const selected =
+                selectedIdea && getIdeaKey(selectedIdea) === getIdeaKey(idea)
+
+              const finalProblem =
+                idea.problem || analysis?.problemBeingSolved || ''
+
+              const finalIndustries =
+                idea.industries.length > 0 ? idea.industries : analysis?.industries ?? []
+
+              const finalTargetAudience =
+                idea.targetAudience || analysis?.targetCustomers.join(', ') || ''
 
               return (
                 <tr
@@ -532,8 +705,14 @@ function IdeasPage({
                   <td className="max-w-xl px-4 py-3 font-medium">
                     {idea.idea || 'Untitled idea'}
                   </td>
+                  <td className="max-w-xs px-4 py-3 text-gray-500">
+                    {finalProblem || '—'}
+                  </td>
                   <td className="px-4 py-3 text-gray-500">
-                    {idea.industries.length > 0 ? idea.industries.join(', ') : '—'}
+                    {finalIndustries.length > 0 ? finalIndustries.join(', ') : '—'}
+                  </td>
+                  <td className="max-w-xs px-4 py-3 text-gray-500">
+                    {finalTargetAudience || '—'}
                   </td>
                   <td className="px-4 py-3 font-semibold">
                     {analysis?.overallScore ?? '—'}
@@ -556,6 +735,7 @@ function IdeasPage({
     </div>
   )
 }
+
 
 function AgentsPage({
   ideas,
@@ -729,8 +909,14 @@ function IdeaDetail({
       )}
 
       <DetailSection label="Description" value={idea.description} />
-      <DetailSection label="Problem Being Solved" value={idea.problem} />
-      <DetailSection label="Target Audience" value={idea.targetAudience} />
+      <DetailSection
+        label="Problem Being Solved"
+        value={idea.problem || analysis?.problemBeingSolved}
+      />
+      <DetailSection
+        label="Target Audience"
+        value={idea.targetAudience || analysis?.targetCustomers.join(', ')}
+      />
       <DetailSection label="Product Name" value={idea.productName} />
       <DetailSection label="Existing Competitors" value={idea.competitors} />
 

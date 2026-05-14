@@ -28,6 +28,7 @@ class QuickIdeaAnalysis(BaseModel):
     id: str
     rowNumber: int
     summary: str
+    problem_being_solved: str
     target_customers: List[str]
     industries: List[str]
 
@@ -85,6 +86,10 @@ def analyze_ideas_bulk(ideas: List[BulkIdeaInput]) -> List[QuickIdeaAnalysis]:
 You are DreamLens Bulk Screen Agent.
 
 Analyze this batch of startup ideas quickly and critically.
+
+For each idea, infer the clearest underlying customer problem.
+This is very important because multiple ideas may solve the same problem.
+The field problem_being_solved should be a concise, reusable problem statement.
 
 This is NOT the deep-research pass.
 Do not write long explanations.

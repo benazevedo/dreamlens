@@ -53,6 +53,7 @@ class AnalyzedIdea(BaseModel):
     rowNumber: int
     idea: str
     summary: str
+    problemBeingSolved: str
     targetCustomers: List[str]
     industries: List[str]
     scores: IdeaScores
@@ -128,6 +129,7 @@ def analyze_bulk_ai_screen(request: AnalyzeRequest):
                     rowNumber=result.rowNumber,
                     idea=source_idea.idea if source_idea else result.summary,
                     summary=result.summary,
+                    problemBeingSolved=result.problem_being_solved,
                     targetCustomers=result.target_customers,
                     industries=result.industries,
                     scores=IdeaScores(
@@ -193,6 +195,7 @@ def analyze_ai_screen(request: AnalyzeRequest):
                 rowNumber=idea.rowNumber,
                 idea=idea.idea,
                 summary=final.summary,
+                problemBeingSolved=final.problem_being_solved,
                 targetCustomers=final.target_customers,
                 industries=final.industries,
                 scores=IdeaScores(

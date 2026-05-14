@@ -8,8 +8,10 @@ import {
   Search,
   Sparkles,
   Upload,
+  Download,
 } from 'lucide-react'
 import { parseIdeasCsv } from './lib/parseIdeasCsv'
+import { exportIdeasCsv } from './lib/exportIdeasCsv'
 import {
   runBulkAiScreen,
   runDeepAiScreen,
@@ -209,6 +211,11 @@ function App() {
     }
   }
 
+  function handleExportCsv() {
+    if (ideas.length === 0) return
+    exportIdeasCsv(ideas, analyzedIdeas)
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 text-gray-950">
       <aside className="fixed left-0 top-0 h-screen w-64 border-r border-gray-200 bg-white p-6">
@@ -255,6 +262,8 @@ function App() {
           onRunBulkAnalysis={() => handleRunBulkAnalysis(25)}
           isBulkAnalyzing={isBulkAnalyzing}
           hasIdeas={ideas.length > 0}
+          canExport={ideas.length > 0}
+          onExportCsv={handleExportCsv}
         />
 
         {error && (
@@ -310,12 +319,16 @@ function Header({
   onRunBulkAnalysis,
   isBulkAnalyzing,
   hasIdeas,
+  canExport,
+  onExportCsv,
 }: {
   isParsing: boolean
   onFileUpload: (file: File | undefined) => void
   onRunBulkAnalysis: () => void
   isBulkAnalyzing: boolean
   hasIdeas: boolean
+  canExport: boolean
+  onExportCsv: () => void
 }) {
   return (
     <div className="mb-8 flex items-center justify-between gap-6">
@@ -339,6 +352,15 @@ function Header({
             onChange={(event) => onFileUpload(event.target.files?.[0])}
           />
         </label>
+
+        <button
+          disabled={!canExport}
+          onClick={onExportCsv}
+          className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Download size={16} />
+          Export CSV
+        </button>
 
         <button
           disabled={!hasIdeas || isBulkAnalyzing}

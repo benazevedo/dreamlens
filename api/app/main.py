@@ -3,8 +3,10 @@ from pydantic import BaseModel, Field
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.idea_graph import IdeaInput, analyze_idea_with_ai
 
-app = FastAPI(title="DreamLens API", version="0.1.0")
+
+app = FastAPI(title="DreamLens API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +67,7 @@ class AnalyzedIdea(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     ideas: List[IdeaRow]
+    limit: int = 5
 
 
 @app.get("/health")
@@ -72,108 +75,66 @@ def health():
     return {"status": "ok", "service": "dreamlens-api"}
 
 
-def clamp_score(value: int) -> int:
-    return max(1, min(5, value))
-
-
-def fake_score_idea(idea: IdeaRow) -> AnalyzedIdea:
+@app.post("/analyze/ai-screen", response_model=List[AnalyzedIdea])
+def analyze_ai_screen(request: AnalyzeRequest):
     """
-    Temporary deterministic scorer.
-    This lets us test the full UI/backend loop before paying for AI calls.
-    Later this function gets replaced by the LangGraph workflow.
+    Real AI workflow.
+    Limit defaults to 5 so you do not accidentally run 309 paid LLM workflows at once.
     """
 
-    text = f"{idea.idea} {idea.description or ''} {idea.problem or ''}".lower()
+    limited_ideas = request.ideas[: request.limit]
+    results: List[AnalyzedIdea] = []
 
-    pain = 3
-    if any(word in text for word in ["urgent", "expensive", "waste", "pain", "problem", "manual", "slow"]):
-        pain += 1
+    for idea in limited_ideas:
+        ai_input = IdeaInput(
+            id=idea.id,
+            rowNumber=idea.rowNumber,
+            idea=idea.idea,
+            description=idea.description,
+            problem=idea.problem,
+            targetAudience=idea.targetAudience,
+            industries=idea.industries,
+        )
 
-    wtp = 3
-    if any(word in text for word in ["business", "enterprise", "company", "medical", "security", "legal"]):
-        wtp += 1
+        final = analyze_idea_with_ai(ai_input)
 
-    market = 3
-    if any(word in text for word in ["ai", "health", "education", "finance", "food", "energy"]):
-        market += 1
-
-    reachability = 3
-    if idea.targetAudience:
-        reachability += 1
-
-    speed = 3
-    if any(word in text for word in ["app", "software", "tool", "platform", "dashboard"]):
-        speed += 1
-    if any(word in text for word in ["hardware", "medical device", "construction", "infrastructure"]):
-        speed -= 1
-
-    ethics = 2
-    if any(word in text for word in ["medical", "health", "children", "student", "security", "surveillance", "legal"]):
-        ethics += 1
-
-    competition = 3
-    if "ai" in text:
-        competition -= 1
-
-    scores = IdeaScores(
-        problemPain=clamp_score(pain),
-        willingnessToPay=clamp_score(wtp),
-        marketSize=clamp_score(market),
-        customerReachability=clamp_score(reachability),
-        founderFit=3,
-        competitiveWhitespace=clamp_score(competition),
-        speedToMvp=clamp_score(speed),
-        grossMargin=4,
-        ethicsRisk=clamp_score(ethics),
-    )
-
-    positive_score = (
-        scores.problemPain * 15
-        + scores.willingnessToPay * 15
-        + scores.marketSize * 15
-        + scores.customerReachability * 10
-        + scores.founderFit * 10
-        + scores.competitiveWhitespace * 10
-        + scores.speedToMvp * 10
-        + scores.grossMargin * 10
-    )
-
-    risk_penalty = scores.ethicsRisk * 5
-    overall = round((positive_score - risk_penalty) / 5)
-
-    base_name = "".join(word.capitalize() for word in idea.idea.split()[:2]) or "DreamLens"
-
-    return AnalyzedIdea(
-        id=idea.id,
-        rowNumber=idea.rowNumber,
-        idea=idea.idea,
-        summary=(idea.description or idea.problem or "No description provided.")[:280],
-        targetCustomers=[idea.targetAudience] if idea.targetAudience else ["Needs customer definition"],
-        industries=idea.industries or ["Unclassified"],
-        scores=scores,
-        overallScore=overall,
-        confidence=0.42,
-        estimatedPriceRange="Needs AI research",
-        competitors=[
-            Competitor(
-                name="Needs research",
-                moat="Competitor research will be added in the LangGraph workflow.",
+        competitors = []
+        for index, competitor_name in enumerate(final.competitors):
+            moat = (
+                final.competitor_moats[index]
+                if index < len(final.competitor_moats)
+                else "Moat not specified."
             )
-        ],
-        ethicsNotes=[
-            "Temporary heuristic result.",
-            "Full ethics review will be added with AI analysis.",
-        ],
-        suggestedNames=[
-            base_name,
-            f"{base_name} AI",
-            f"{base_name} Labs",
-        ],
-        recommendation="Temporary fast-screen score. Needs LangGraph analysis.",
-        status="completed",
-    )
+            competitors.append(Competitor(name=competitor_name, moat=moat))
 
+        results.append(
+            AnalyzedIdea(
+                id=idea.id,
+                rowNumber=idea.rowNumber,
+                idea=idea.idea,
+                summary=final.summary,
+                targetCustomers=final.target_customers,
+                industries=final.industries,
+                scores=IdeaScores(
+                    problemPain=final.problem_pain,
+                    willingnessToPay=final.willingness_to_pay,
+                    marketSize=final.market_size,
+                    customerReachability=final.customer_reachability,
+                    founderFit=final.founder_fit,
+                    competitiveWhitespace=final.competitive_whitespace,
+                    speedToMvp=final.speed_to_mvp,
+                    grossMargin=final.gross_margin,
+                    ethicsRisk=final.ethics_risk,
+                ),
+                overallScore=final.overall_score,
+                confidence=final.confidence,
+                estimatedPriceRange=final.estimated_price_range,
+                competitors=competitors,
+                ethicsNotes=final.ethics_notes,
+                suggestedNames=final.suggested_names,
+                recommendation=final.recommendation,
+                status="completed",
+            )
+        )
 
-@app.post("/analyze/fast-screen", response_model=List[AnalyzedIdea])
-def analyze_fast_screen(request: AnalyzeRequest):
-    return [fake_score_idea(idea) for idea in request.ideas]
+    return results

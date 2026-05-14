@@ -35,17 +35,20 @@ export type AnalyzedIdea = {
 
 const API_BASE_URL = 'http://localhost:8000'
 
-export async function runFastScreen(ideas: IdeaRow[]): Promise<AnalyzedIdea[]> {
-  const response = await fetch(`${API_BASE_URL}/analyze/fast-screen`, {
+export async function runAiScreen(
+  ideas: IdeaRow[],
+  limit = 5,
+): Promise<AnalyzedIdea[]> {
+  const response = await fetch(`${API_BASE_URL}/analyze/ai-screen`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ ideas }),
+    body: JSON.stringify({ ideas, limit }),
   })
 
   if (!response.ok) {
-    throw new Error(`Fast screen failed: ${response.status}`)
+    throw new Error(`AI screen failed: ${response.status}`)
   }
 
   return response.json()
